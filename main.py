@@ -1,7 +1,7 @@
 import sys
 import PyQt6.QtWidgets as QtW
 
-from UI.window import TriadApp
+from Core.app_window import TriadApp
 
 def main():
     app = QtW.QApplication(sys.argv)
