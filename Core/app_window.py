@@ -10,10 +10,10 @@ class TriadApp(QtW.QMainWindow):
     def __init__(self, app):
         super().__init__()
         self.app = app
+        self.app.setStyle("Fusion")
 
         # Window theme (color scheme)
-        self.current_theme = "dark"
-        apply_theme(self, app, set_theme=self.current_theme)
+        apply_theme(app, set_theme="dark")
 
         # Project Manager
         self.project = Project()
@@ -55,7 +55,7 @@ class TriadApp(QtW.QMainWindow):
 
     def toggle_theme(self):
         # Set to the next theme in the list, and send the name to the button text
-        self.theme_button.setText(apply_theme(self, self.app))
+        self.theme_button.setText(apply_theme(self.app))
 
     def projects_tab(self):
         tab_widget = QtW.QWidget()

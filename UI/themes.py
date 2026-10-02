@@ -58,22 +58,30 @@ THEMES = {
     },
 }
 
-def apply_theme(window, app, *, set_theme=None):
+# Reverse lookup themes dict
+THEME_BY_ID = {id(v): k for k, v in THEMES.items()}
+
+def apply_theme(app, *, set_theme=None):
     if set_theme is None:
+        # Get list of theme names
         theme_names = list(THEMES)
-        current_index = theme_names.index(window.current_theme)
+
+        # Get the name of the current theme (Default: dark)
+        current_name = THEME_BY_ID.get(id(app.active_theme), "dark")
+
+        # Get both the current and next theme's index
+        current_index = theme_names.index(current_name)
         next_index = (current_index + 1) % len(theme_names)
 
+        # Get the name of the next theme to be loaded
         theme_name = theme_names[next_index]
-        window.current_theme = theme_name
 
     else:
+        # Get the name of the given theme to be loaded
         theme_name = set_theme
 
-    return_name = theme_name.replace("_", " ").title()
-
+    # Get color data (dict) of the theme to be loaded
     theme = THEMES[theme_name]
-    app.setStyle("Fusion")
 
     # Global theme token
     app.active_theme = theme
@@ -118,5 +126,5 @@ def apply_theme(window, app, *, set_theme=None):
         """
     app.setStyleSheet(QSS)
 
-    # Return theme name to app window
-    return return_name
+    # Return formatted theme name to app window
+    return theme_name.replace("_", " ").title()
