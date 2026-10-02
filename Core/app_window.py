@@ -4,12 +4,18 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 
 from Core.project import Project
+from UI.themes import apply_theme
 
 class TriadApp(QtW.QMainWindow):
     def __init__(self, app):
         super().__init__()
         self.app = app
 
+        # Window theme (color scheme)
+        self.current_theme = "dark"
+        apply_theme(self, app, set_theme=self.current_theme)
+
+        # Project Manager
         self.project = Project()
 
         self.setWindowTitle("Sonic Triad Studio - RetroKoH 2027")
@@ -24,9 +30,10 @@ class TriadApp(QtW.QMainWindow):
         self.tabs = QtW.QTabWidget()
         main_layout.addWidget(self.tabs)
 
-        # Preferences button
-        self.prefButton = QtW.QPushButton("Preferences")
-        self.tabs.setCornerWidget(self.prefButton, Qt.Corner.TopRightCorner)
+        # Theme button (Later, this will be a preferences button)
+        self.theme_button = QtW.QPushButton("Dark")
+        self.theme_button.clicked.connect(self.toggle_theme)
+        self.tabs.setCornerWidget(self.theme_button, Qt.Corner.TopRightCorner)
 
         # Init tabs
         self.projects_tab()
@@ -45,6 +52,10 @@ class TriadApp(QtW.QMainWindow):
         self.statusLabel = QtW.QLabel("Status: Idle")
         self.statusLabel.setFixedHeight(20)
         main_layout.addWidget(self.statusLabel)
+
+    def toggle_theme(self):
+        # Set to the next theme in the list, and send the name to the button text
+        self.theme_button.setText(apply_theme(self, self.app))
 
     def projects_tab(self):
         tab_widget = QtW.QWidget()
