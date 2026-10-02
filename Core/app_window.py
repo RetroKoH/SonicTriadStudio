@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt
 
 from Core.project import Project
 from UI.themes import apply_theme
+from Editors import *
 
 class TriadApp(QtW.QMainWindow):
     def __init__(self, app):
@@ -35,15 +36,16 @@ class TriadApp(QtW.QMainWindow):
         self.theme_button.clicked.connect(self.toggle_theme)
         self.tabs.setCornerWidget(self.theme_button, Qt.Corner.TopRightCorner)
 
-        # Init tabs
-        self.projects_tab()
-        self.init_tab("Palettes")
-        self.init_tab("Sprites")
-        self.init_tab("Animations")
-        self.init_tab("Levels")
-        self.init_tab("Objects")
-        self.init_tab("Tilemaps")
-        self.init_tab("Special Stages")
+        # Init editing tools
+        self.palette_editor = PaletteEditor(self.project)
+        self.sprite_editor = SpriteEditor(self.project)
+        self.animation_editor = AnimationEditor(self.project)
+        self.level_editor = LevelEditor(self.project)
+        self.objdef_editor = ObjectDefEditor(self.project)
+        self.tilemap_editor = TilemapEditor(self.project)
+        self.special_editor = SpecStageEditor(self.project)
+
+        self.init_tabs()
 
         # Connecting function for when project is loaded
         self.project.project_loaded.connect(self.project_refresh_dashboard)
@@ -86,19 +88,18 @@ class TriadApp(QtW.QMainWindow):
 
         self.tabs.addTab(tab_widget, "Projects")
 
-    def init_tab(self, name):
+    def init_tabs(self):
         """
-        Initializes a placeholder tab
+        Initializes tabs
         """
-        tab = QtW.QTabWidget()
-        layout = QtW.QVBoxLayout(tab)
-
-        header = QtW.QLabel(f"{name} Editor")
-        header.setFixedHeight(40)
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setObjectName("headerLabel")
-        layout.addWidget(header)
-        self.tabs.addTab(tab, name)
+        self.projects_tab()
+        self.tabs.addTab(self.palette_editor, "Palettes")
+        self.tabs.addTab(self.sprite_editor, "Sprites")
+        self.tabs.addTab(self.animation_editor, "Animations")
+        self.tabs.addTab(self.level_editor, "Levels")
+        self.tabs.addTab(self.objdef_editor, "Objects")
+        self.tabs.addTab(self.tilemap_editor, "Tilemaps")
+        self.tabs.addTab(self.special_editor, "Special Stages")
 
     def project_load(self, project_path):
         """
