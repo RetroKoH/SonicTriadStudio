@@ -167,30 +167,13 @@ class TriadApp(QtW.QMainWindow):
             add_file(palettes_item, path)
 
         # Sprite builds and their associated resources
-        # (Consider changing this to ONLY builds)
+        # Sprite builds
         sprites_item = add_folder(self.asset_tree, "Sprites")
 
-        for name, config in data.get("sprites", {}).items():
-            build_item = add_folder(sprites_item, name)
-
-            if not isinstance(config, dict):
-                continue
-
-            for key, label in (("art", "Art"), ("palettes", "Palettes")):
-                entries = config.get(key, [])
-
-                if entries:
-                    group_item = add_folder(build_item, label)
-
-                    for entry in entries:
-                        add_file(group_item, entry.get("path"))
-
-            for key, label in (("mappings", "Mappings"), ("dplcs", "DPLCs")):
-                entry = config.get(key, {})
-
-                if entry and entry.get("path"):
-                    group_item = add_folder(build_item, label)
-                    add_file(group_item, entry["path"])
+        for name in data.get("sprites", {}):
+            build_item = QtW.QTreeWidgetItem(sprites_item, [name])
+            build_item.setIcon(0, file_icon)
+            build_item.setData(0, Qt.ItemDataRole.UserRole, name)
 
         # Show resource categories with folders collapsed
         self.asset_tree.expandToDepth(-1)
