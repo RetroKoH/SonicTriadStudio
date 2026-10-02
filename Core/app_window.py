@@ -64,6 +64,7 @@ class TriadApp(QtW.QMainWindow):
         header = QtW.QLabel("Project Dashboard")
         header.setFixedHeight(40)
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setObjectName("headerLabel")
         dashboard.addWidget(header)
 
         # Asset Tree
@@ -78,6 +79,7 @@ class TriadApp(QtW.QMainWindow):
 
         self.dropzone = DropWidget(self, "Drop Project JSON file here")
         self.dropzone.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.dropzone.setObjectName("dropZone")
         content.addWidget(self.dropzone)
 
         dashboard.addLayout(content)
@@ -94,6 +96,7 @@ class TriadApp(QtW.QMainWindow):
         header = QtW.QLabel(f"{name} Editor")
         header.setFixedHeight(40)
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setObjectName("headerLabel")
         layout.addWidget(header)
         self.tabs.addTab(tab, name)
 

@@ -3,17 +3,14 @@ from PyQt6.QtGui import QPalette, QColor
 
 THEMES = {
     "dark": {
-        "primary": "#8088F8",           # ONLY used for dropbox outline (merge with box_selected)
-        "bg_dark": "#181818",           # Unknown where this is used (merge with fusion_base)
-        "bg_medium": "#242424",         # ONLY used for dropbox interior (merge w/ color used for widget interior)
-        "bg_light": "#303030",          # Unknown where this is used
+        "highlight": "#8088F8",         # Used for dropbox outline, text highlight, and box_selected
+        "interior": "#181818",          # Widget interior (Scroll area, dropbox interior)
         "text_main": "#E4EEEE",         # Used with all non-header text
-        "text_muted": "#B8BCC4",        # Used with header text
-        "border": "#484848",            # Used only with palette box borders
-        "box_selected": "#FFFFFF",      # Used for pal selection outline
-        "fusion_window": "#222222",     # Window background (and widget interior; Split this off)
-        "fusion_base": "#181818",       # Inner (Textbox, Scrollbar)
-        "fusion_button": "#343434",     # Tab
+        "text_header": "#B8BCC4",       # Used with header text
+        "box_border": "#484848",        # Used only with palette box borders
+        "background": "#222222",        # Window background
+        "fusion_base": "#1C1C1C",       # Inner (Textbox, Scrollbar, Asset Tree)
+        "fusion_button": "#343434",     # Tab and buttons (Maybe split these off?)
 
         # Additional styling colors (add to all palettes)
         "text_heading": "#CDD0FF",
@@ -21,17 +18,14 @@ THEMES = {
         "separator": "#686C74",
     },
     "light": {
-        "primary": "#5058C8",
-        "bg_dark": "#E0E0E0",
-        "bg_medium": "#E8E8E8",
-        "bg_light": "#F8F8F8",
+        "highlight": "#5058C8",
+        "interior": "#E0E0E0",
         "text_main": "#101828",
-        "text_muted": "#586068",
-        "border": "#C8C8C8",
-        "box_selected": "#5058C8",
-        "fusion_window": "#F0F0F0",     # Window background
-        "fusion_base": "#FFFFFF",       # Inner (Textbox, Scrollbar)
-        "fusion_button": "#DCE0E4",     # Tab
+        "text_header": "#586068",
+        "box_border": "#C8C8C8",
+        "background": "#F0F0F0",
+        "fusion_base": "#FFFFFF",
+        "fusion_button": "#DCE0E4",
 
         # Additional styling colors (add to all palettes)
         "text_heading": "#CDD0FF",
@@ -39,15 +33,12 @@ THEMES = {
         "separator": "#686C74",
     },
     "ash": {
-        "primary": "#A6ACFF",
-        "bg_dark": "#383A3E",
-        "bg_medium": "#494C52",
-        "bg_light": "#55585F",
+        "highlight": "#A6ACFF",
+        "interior": "#383A3E",
         "text_main": "#F2F3F5",
-        "text_muted": "#C3C6CD",
-        "border": "#686C74",
-        "box_selected": "#A6ACFF",
-        "fusion_window": "#414348",
+        "text_header": "#C3C6CD",
+        "box_border": "#686C74",
+        "background": "#414348",
         "fusion_base": "#383A3E",
         "fusion_button": "#4D5057",
 
@@ -62,6 +53,12 @@ THEMES = {
 THEME_BY_ID = {id(v): k for k, v in THEMES.items()}
 
 def apply_theme(app, *, set_theme=None):
+    """
+    Change the color theme used in the app.
+
+    Returns theme name for the button in the tab bar.
+    """
+    # Simply advance to the next theme in the list
     if set_theme is None:
         # Get list of theme names
         theme_names = list(THEMES)
@@ -88,25 +85,24 @@ def apply_theme(app, *, set_theme=None):
 
     # Assign standard colors
     palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(theme["fusion_window"]))
+    palette.setColor(QPalette.ColorRole.Window, QColor(theme["background"]))        # Window background
     palette.setColor(QPalette.ColorRole.WindowText, QColor(theme["text_main"]))
     palette.setColor(QPalette.ColorRole.Base, QColor(theme["fusion_base"]))
     palette.setColor(QPalette.ColorRole.Text, QColor(theme["text_main"]))
     palette.setColor(QPalette.ColorRole.Button, QColor(theme["fusion_button"]))
     palette.setColor(QPalette.ColorRole.ButtonText, QColor(theme["text_main"]))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(theme["primary"]))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(theme["highlight"]))
     app.setPalette(palette)
 
-    # The last item that uses bg_light should use a new intermediary color
     QSS = f"""
             QLabel#headerLabel {{
-                color: {theme["text_muted"]};
+                color: {theme["text_header"]};
                 font-size: 18px;
                 font-weight: bold;
             }}
 
             QLabel#infoLabel {{
-                color: {theme["text_muted"]};
+                color: {theme["text_header"]};
                 font-size: 14px;
                 font-weight: bold;
             }}
@@ -114,10 +110,10 @@ def apply_theme(app, *, set_theme=None):
             QLabel#dropZone {{
                 font-size: 16px;
                 font-weight: bold;
-                color: {theme["text_muted"]};
-                border: 2px dashed {theme["primary"]};
+                color: {theme["text_header"]};
+                border: 2px dashed {theme["highlight"]};
                 border-radius: 8px;
-                background-color: {theme["bg_medium"]};
+                background-color: {theme["interior"]};
             }}
 
             QGroupBox#ControlsGroup {{
