@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
+from PyQt6 import QtGui
 from PyQt6.QtCore import Qt
 
 from Core.project import Project
@@ -72,7 +73,7 @@ class TriadApp(QtW.QMainWindow):
         # Asset Tree
         content = QtW.QHBoxLayout()
         self.asset_tree = QtW.QTreeWidget()
-        self.asset_tree.setHeaderLabel("AssetIO")
+        self.asset_tree.setHeaderLabel("Assets")
         self.asset_tree.setFixedWidth(240)
         self.asset_tree.setIndentation(20)
         self.asset_tree.setUniformRowHeights(True)
@@ -200,19 +201,19 @@ class DropWidget(QtW.QLabel):
         self.app = app
         self.setAcceptDrops(True)
 
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls:
-            for url in event.mimeData().urls():
+    def dragEnterEvent(self, a0: QtGui.QDragEnterEvent|None) -> None:
+        if a0.mimeData().hasUrls:
+            for url in a0.mimeData().urls():
                 if url.toLocalFile().lower().endswith(".json"):
-                    event.acceptProposedAction()
+                    a0.acceptProposedAction()
                     return
 
-        event.ignore()
+        a0.ignore()
 
-    def dropEvent(self, event):
-        for url in event.mimeData().urls():
+    def dropEvent(self, a0: QtGui.QDropEvent|None) -> None:
+        for url in a0.mimeData().urls():
             file_path = url.toLocalFile()
             if file_path.lower().endswith(".json"):
                 self.app.project_load(file_path)
-                event.acceptProposedAction()
+                a0.acceptProposedAction()
                 break

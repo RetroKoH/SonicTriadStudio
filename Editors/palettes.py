@@ -147,6 +147,10 @@ class PaletteEditor(QtW.QWidget):
         # Build initial grid UI and set selection to color 0
         self.palette_set_colors(self.colors)
 
+        # Initialize palette clipboard
+        self.clipboard_refresh()
+        self.btn_toggle_clipboard.setChecked(False)
+
     def ui_build_file_toolbar(self):
         """
         File toolbar constructor (Dropdown and file buttons)
@@ -254,13 +258,12 @@ class PaletteEditor(QtW.QWidget):
         # This is for the resizing
         self.palette_scroll.viewport().installEventFilter(self)
 
+        self.btn_toggle_clipboard = self.clipboard_group.toggle_button
+
         # Palette Clipboard
         self.btn_clear_clipboard = create_pushbutton("Clear",
             tooltip="Clear out the clipboard", on_clicked=self.clipboard_clear,
             layout=self.clipboard_group.header_layout)
-
-        # Connect collapsible panel toggle signal
-        self.clipboard_group.toggled.connect(self.clipboard_toggle)
 
         # Scrollable clipboard grid
         clipboard = QtW.QWidget()
