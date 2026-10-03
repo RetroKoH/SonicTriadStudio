@@ -14,5 +14,5 @@ __all__ = [
     "LevelEditor",
     "ObjectDefEditor",
     "TilemapEditor",
-    "SpecStageEditor",
+    "SpecStageEditor"
 ]

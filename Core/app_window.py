@@ -72,7 +72,7 @@ class TriadApp(QtW.QMainWindow):
         # Asset Tree
         content = QtW.QHBoxLayout()
         self.asset_tree = QtW.QTreeWidget()
-        self.asset_tree.setHeaderLabel("Assets")
+        self.asset_tree.setHeaderLabel("AssetIO")
         self.asset_tree.setFixedWidth(240)
         self.asset_tree.setIndentation(20)
         self.asset_tree.setUniformRowHeights(True)

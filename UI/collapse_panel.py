@@ -18,14 +18,9 @@ class CollapsiblePanel(QtW.QGroupBox):
         self.header_layout = QtW.QHBoxLayout()
 
         self.toggle_button = create_toolbutton(
-            title,
-            arrow_type=Qt.ArrowType.DownArrow,
+            title, arrow_type=Qt.ArrowType.DownArrow,
             tool_button_style=Qt.ToolButtonStyle.ToolButtonTextBesideIcon,
-            checkable=True,
-            checked=True,
-            tooltip=tooltip,
-            layout=self.header_layout,
-        )
+            checkable=True, checked=True, tooltip=tooltip, layout=self.header_layout)
 
         self.header_layout.addStretch()
         self.panel_layout.addLayout(self.header_layout)
