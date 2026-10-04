@@ -33,8 +33,8 @@ class SpriteEditor(QtW.QWidget):
     # UI Setup
     # --------------------------------------------------
     def ui_init(self):
-        main_layout = QtW.QVBoxLayout(self)
-        main_layout.addLayout(self.ui_build_file_toolbar())
+        """Top-level UI constructor"""
+        layout = QtW.QVBoxLayout(self)
 
         # TOP PANEL TOOLBAR
         layout.addLayout(self.ui_build_file_toolbar())
