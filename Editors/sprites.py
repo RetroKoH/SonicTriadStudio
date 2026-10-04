@@ -23,6 +23,7 @@ from UI.widgets import (
 class SpriteEditor(QtW.QWidget):
     def __init__(self, project=None):
         super().__init__()
+        self.project = project
         self.palette_boxes = []
         self.sprite_canvas_width = 256
         self.sprite_canvas_height = 256
@@ -71,6 +72,7 @@ class SpriteEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
+        create_label("Sprite Build:", layout=toolbar)
         # Sprite Build Dropdown
         self.spr_dropdown = create_combobox(
             tooltip="Select a sprite build from the active project",

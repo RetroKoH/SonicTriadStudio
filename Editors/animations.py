@@ -24,6 +24,7 @@ from UI.widgets import (
 class AnimationEditor(QtW.QWidget):
     def __init__(self, project=None):
         super().__init__()
+        self.project = project
         self.ui_init()
 
     # --------------------------------------------------
@@ -61,6 +62,7 @@ class AnimationEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
+        create_label("Animation:", layout=toolbar)
         # Animation Dropdown
         self.anim_dropdown = create_combobox(
             tooltip="Select an animation from the active project",

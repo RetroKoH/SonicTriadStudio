@@ -162,6 +162,7 @@ class PaletteEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
+        create_label("Palette:", layout=toolbar)
         # Palette File Dropdown
         self.pal_dropdown = create_combobox(
             tooltip="Select a palette file from the active project",
