@@ -36,17 +36,21 @@ class SpriteEditor(QtW.QWidget):
         main_layout = QtW.QVBoxLayout(self)
         main_layout.addLayout(self.ui_build_file_toolbar())
 
-        sprite_panel = self.ui_build_sprite_panel()
-        editing_panel = self.ui_build_editing_panel()
+        # TOP PANEL TOOLBAR
+        layout.addLayout(self.ui_build_file_toolbar())
 
-        self.content_splitter = create_splitter(
-            (sprite_panel, editing_panel),
-            orientation=Qt.Orientation.Horizontal,
-            stretch_factors=(2, 1), sizes=(664, 336))
-        main_layout.addWidget(self.content_splitter, stretch=1)
+        sprite_panel = self.ui_build_sprite_panel()     # LEFT PANEL: Sprite View and File Manager
+        editing_panel = self.ui_build_editing_panel()   # RIGHT PANEL: Editing Controls
 
+        # Horizontal splitter between the sprite viewer and editor
+        self.content_splitter = create_splitter((sprite_panel, editing_panel),
+            orientation=Qt.Orientation.Horizontal, stretch_factors=(1, 1), sizes=(664, 336))
+        layout.addWidget(self.content_splitter, stretch=1)
+
+        # Close File Manager tray to start
         self.btn_toggle_filemanager.setChecked(False)
 
+        # Disable everything for now
         for widget_type in (QtW.QPushButton, QtW.QComboBox, QtW.QSpinBox,
                             QtW.QLineEdit, QtW.QCheckBox):
             for widget in self.findChildren(widget_type):
@@ -57,29 +61,35 @@ class SpriteEditor(QtW.QWidget):
             table.setEditTriggers(QtW.QAbstractItemView.EditTrigger.NoEditTriggers)
 
     def ui_build_file_toolbar(self):
-        file_toolbar = QtW.QHBoxLayout()
-        file_toolbar.setSpacing(4)
-        file_toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        """
+        File toolbar constructor (Dropdown and file buttons)
+
+        Returns:
+            QtW.QHBoxLayout (toolbar; Contains ComboBox and PushButtons)
+        """
+        toolbar = QtW.QHBoxLayout()
+        toolbar.setSpacing(4)
+        toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Sprite Build Dropdown
         self.spr_dropdown = create_combobox(
             tooltip="Select a sprite build from the active project",
-            layout=file_toolbar)
+            layout=toolbar)
 
         # File Buttons
         create_pushbutton("New", tooltip="Create a new sprite build",
-            layout=file_toolbar)
+            layout=toolbar)
         create_pushbutton("Load", tooltip="Load an existing sprite build",
-            layout=file_toolbar)
+            layout=toolbar)
         create_pushbutton("Save", tooltip="Save the current sprite build",
-            layout=file_toolbar)
+            layout=toolbar)
         create_pushbutton("Remove", tooltip="Remove the current sprite build from the project",
-            layout=file_toolbar)
+            layout=toolbar)
         create_pushbutton("Clear Data", tooltip="Clear the current sprite data",
-            layout=file_toolbar)
+            layout=toolbar)
 
-        file_toolbar.addStretch()
-        return file_toolbar
+        toolbar.addStretch()
+        return toolbar
 
     def ui_build_sprite_panel(self):
         sprite_panel = QtW.QWidget()
@@ -115,7 +125,7 @@ class SpriteEditor(QtW.QWidget):
         self.spr_file_group = CollapsiblePanel("Sprite Data and Files",
             tooltip="Expand or collapse the file manager")
 
-        self.btn_toggle_filemanager = (self.spr_file_group.toggle_button)
+        self.btn_toggle_filemanager = self.spr_file_group.toggle_button
         file_header_layout = self.spr_file_group.header_layout
 
         # The following items emulate an in-game object's art_tile OST

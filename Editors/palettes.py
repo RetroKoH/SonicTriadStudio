@@ -258,9 +258,7 @@ class PaletteEditor(QtW.QWidget):
         # This is for the resizing
         self.palette_scroll.viewport().installEventFilter(self)
 
-        self.btn_toggle_clipboard = self.clipboard_group.toggle_button
-
-        # Palette Clipboard
+        # Palette Clipboard (Within a collapsible panel)
         self.btn_clear_clipboard = create_pushbutton("Clear",
             tooltip="Clear out the clipboard", on_clicked=self.clipboard_clear,
             layout=self.clipboard_group.header_layout)
