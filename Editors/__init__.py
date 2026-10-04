@@ -4,7 +4,7 @@ from .animations import AnimationEditor
 from .levels import LevelEditor
 from .objdef import ObjectDefEditor
 from .tilemaps import TilemapEditor
-from .specialstage import SpecStageEditor
+from .specialstages import SpecStageEditor
 
 # This defines what gets imported if using 'from Editors import *'
 __all__ = [
