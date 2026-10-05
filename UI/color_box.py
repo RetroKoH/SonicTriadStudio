@@ -54,7 +54,7 @@ class ColorBox(QtW.QFrame):
 
     def update_style(self):
         app = QtW.QApplication.instance()
-        theme = getattr(app, "active_theme", THEMES["dark"])
+        theme = getattr(app, "active_theme", THEMES["Dark"])
         self.is_updating = True
 
         if self.is_selected:

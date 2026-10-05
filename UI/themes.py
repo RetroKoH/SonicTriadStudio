@@ -2,8 +2,8 @@
 from PyQt6.QtGui import QPalette, QColor
 
 THEMES = {
-    "dark": {
-        "highlight": "#8088F8",         # Used for dropbox outline, text highlight, and box_selected
+    "Dark": {
+        "highlight": "#8088F8",         # Used for text highlight. (Make dropbox outline and box_selected their own color)
         "interior": "#181818",          # Widget interior (Scroll area, dropbox interior)
         "text_main": "#E4EEEE",         # Used with all non-header text
         "text_header": "#B8BCC4",       # Used with header text
@@ -17,13 +17,13 @@ THEMES = {
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
-    "light": {
-        "highlight": "#5058C8",
-        "interior": "#E0E0E0",
+    "Light": {
+        "highlight": "#5058C0",
+        "interior": "#F8F8F8",
         "text_main": "#101828",
         "text_header": "#586068",
-        "box_border": "#C8C8C8",
-        "background": "#F0F0F0",
+        "box_border": "#989898",
+        "background": "#EAEAEA",
         "fusion_base": "#FFFFFF",
         "fusion_button": "#DCE0E4",
 
@@ -32,15 +32,45 @@ THEMES = {
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
-    "ash": {
+    "Ash": {
         "highlight": "#A6ACFF",
         "interior": "#383A3E",
         "text_main": "#F2F3F5",
-        "text_header": "#C3C6CD",
+        "text_header": "#C3C6DD",
         "box_border": "#686C74",
-        "background": "#414348",
+        "background": "#404146",
         "fusion_base": "#383A3E",
-        "fusion_button": "#4D5057",
+        "fusion_button": "#4D5056",
+
+        # Additional styling colors (add to all palettes)
+        "text_heading": "#CDD0FF",
+        "bg_selected": "#545767",
+        "separator": "#686C74",
+    },
+    "SSRG": {
+        "highlight": "#3266D1",
+        "interior": "#F0F7FC",
+        "text_main": "#031971",
+        "text_header": "#062E82",
+        "box_border": "#686C74",
+        "background": "#E7E7FF",
+        "fusion_base": "#F5F8FB",
+        "fusion_button": "#DDF0FC",
+
+        # Additional styling colors (add to all palettes)
+        "text_heading": "#CDD0FF",
+        "bg_selected": "#545767",
+        "separator": "#686C74",
+    },
+    "Sonic Retro": {
+        "highlight": "#3266D1",
+        "interior": "#181818",
+        "text_main": "#E4EEEE",
+        "text_header": "#CFDF00",
+        "box_border": "#484848",
+        "background": "#181818",
+        "fusion_base": "#1C1C1C",
+        "fusion_button": "#303018",
 
         # Additional styling colors (add to all palettes)
         "text_heading": "#CDD0FF",
@@ -94,6 +124,7 @@ def apply_theme(app, *, set_theme=None):
     palette.setColor(QPalette.ColorRole.Highlight, QColor(theme["highlight"]))
     app.setPalette(palette)
 
+    # QWidget#interior: This will change the BG of the palette window to match lineedit
     QSS = f"""
             QLabel#headerLabel {{
                 color: {theme["text_header"]};
@@ -105,6 +136,10 @@ def apply_theme(app, *, set_theme=None):
                 color: {theme["text_header"]};
                 font-size: 14px;
                 font-weight: bold;
+            }}
+            
+            QWidget#interior {{
+                background-color: {theme["interior"]};
             }}
 
             QLabel#dropZone {{
@@ -123,4 +158,4 @@ def apply_theme(app, *, set_theme=None):
     app.setStyleSheet(QSS)
 
     # Return formatted theme name to app window
-    return theme_name.replace("_", " ").title()
+    return theme_name

@@ -15,7 +15,7 @@ class TriadApp(QtW.QMainWindow):
         self.app.setStyle("Fusion")
 
         # Window theme (color scheme)
-        apply_theme(app, set_theme="dark")
+        apply_theme(app, set_theme="Dark")
 
         # Project Manager
         self.project = Project()

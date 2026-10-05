@@ -243,6 +243,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Scrollable palette grid (w/ resizing ColorBox)
         scroll_content = QtW.QWidget()
+        #scroll_content.setObjectName("interior") <- This will change the BG of the palette window to match lineedit
 
         # Palette grid aligns to the top-left corner
         self.grid_layout = QtW.QGridLayout(scroll_content)
