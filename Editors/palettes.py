@@ -13,6 +13,7 @@ from Dialogs.palettes import (
     PaletteExtractDialog
 )
 from UI.collapse_panel import CollapsiblePanel
+from UI.file_toolbar import create_file_toolbar
 from UI.md_color import snap_to_md_color, ColorLibrary
 from UI.widgets import (
     create_combobox,
@@ -73,7 +74,6 @@ class PaletteEditor(QtW.QWidget):
         self.max_history = 50
 
         # UI Widget handlers
-
         # ui_init()
         self.content_splitter = None
 
@@ -140,7 +140,12 @@ class PaletteEditor(QtW.QWidget):
         layout = QtW.QVBoxLayout(self)
 
         # TOP PANEL TOOLBAR
-        layout.addLayout(self.ui_build_file_toolbar())
+        toolbar = create_file_toolbar(self.pal_dropdown, self.unsaved_label,
+            resource_name="palette", unsaved_changes=self._unsaved_changes,
+            on_new=self.file_palette_new, on_load=self.file_palette_load,
+            on_save=self.file_palette_save, on_save_as=self.file_palette_save_as,
+            on_remove=self.file_palette_remove)
+        layout.addLayout(toolbar)
 
         palette_panel = self.ui_build_palette_panel()  # LEFT PANEL: Palette and Clipboard
         editing_panel = self.ui_build_editing_panel()  # RIGHT PANEL: Editing Controls
@@ -156,38 +161,6 @@ class PaletteEditor(QtW.QWidget):
         # Initialize palette clipboard
         self.clipboard_refresh()
         self.btn_toggle_clipboard.setChecked(False)
-
-    def ui_build_file_toolbar(self):
-        """
-        File toolbar constructor (Dropdown and file buttons)
-
-        Returns:
-            QtW.QHBoxLayout (file_toolbar; Contains ComboBox and PushButtons)
-        """
-        toolbar = QtW.QHBoxLayout()
-        toolbar.setSpacing(4)
-        toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        # Palette File Dropdown
-        toolbar.addWidget(self.pal_dropdown, stretch=1)
-
-        # File Buttons
-        create_pushbutton("New", tooltip="Create a new palette",
-            on_clicked=lambda: self.check_unsaved_changes(self.file_palette_new), layout=toolbar)
-        create_pushbutton("Load", tooltip="Load an existing palette",
-            on_clicked=lambda: self.check_unsaved_changes(self.file_palette_load), layout=toolbar)
-        create_pushbutton("Save", tooltip="Save the current palette",
-            on_clicked=self.file_palette_save, layout=toolbar)
-        create_pushbutton("Save As...", tooltip="Save the current palette under a new name",
-            on_clicked=self.file_palette_save_as, layout=toolbar)
-        create_pushbutton("Remove", tooltip="Remove the current palette from the project",
-            on_clicked=self.file_palette_remove, layout=toolbar)
-
-        toolbar.addWidget(self.unsaved_label)
-        self.unsaved_label.setVisible(self._unsaved_changes)
-
-        toolbar.addStretch()
-        return toolbar
 
     def ui_build_palette_panel(self):
         """

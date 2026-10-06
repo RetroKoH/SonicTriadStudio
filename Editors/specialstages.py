@@ -8,8 +8,10 @@ Editing controls are disabled; the splitter and collapsible file panel work.
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QColor
 
 from UI.collapse_panel import CollapsiblePanel
+from UI.file_toolbar import create_file_toolbar
 from UI.widgets import (
     create_combobox,
     create_label,
@@ -29,6 +31,24 @@ class SpecStageEditor(QtW.QWidget):
         self.stage_height = 64
         self.stage_cell_size = 24
         self.stage_zoom = 1
+
+        # Palette Storage (64 colors)
+        self.colors = [QColor(0, 0, 0) for _i in range(64)]
+        self.boxes = []
+
+        # "Dirty flag" - Cleared if current state matches last saved state
+        self._unsaved_changes = False
+
+        # UI Widget handlers
+        # ui_init()
+        self.content_splitter = None
+
+        # ui_build_file_toolbar()
+        self.stage_dropdown = create_combobox(
+            tooltip="Select a special stage from the active project")
+        self.unsaved_label = create_label("Unsaved Changes")
+        self.format_label = create_label("Format: Sonic 1")
+
         self.ui_init()
 
     # --------------------------------------------------
@@ -37,10 +57,19 @@ class SpecStageEditor(QtW.QWidget):
     def ui_init(self):
         """Build the stage canvas/file panel and cell editing panel."""
         layout = QtW.QVBoxLayout(self)
-        layout.addLayout(self.ui_build_file_toolbar())
 
-        stage_panel = self.ui_build_stage_panel()
-        editing_panel = self.ui_build_editing_panel()
+        # TOP PANEL TOOLBAR
+        toolbar = create_file_toolbar(self.stage_dropdown, self.unsaved_label,
+            resource_name="special stage", unsaved_changes=self._unsaved_changes,
+            on_new=None, on_load=None,
+            on_save=None, on_save_as=None,
+            on_remove=None, extra_widgets=(self.format_label,))
+        layout.addLayout(toolbar)
+
+        stage_panel = self.ui_build_stage_panel()       # LEFT PANEL
+        editing_panel = self.ui_build_editing_panel()   # RIGHT PANEL
+
+        # Horizontal splitter between the sprite viewer and editor
         self.content_splitter = create_splitter(
             (stage_panel, editing_panel),
             orientation=Qt.Orientation.Horizontal,
@@ -57,28 +86,6 @@ class SpecStageEditor(QtW.QWidget):
         self.stage_file_table.setEditTriggers(
             QtW.QAbstractItemView.EditTrigger.NoEditTriggers)
 
-    def ui_build_file_toolbar(self):
-        toolbar = QtW.QHBoxLayout()
-        toolbar.setSpacing(4)
-        toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        self.stage_dropdown = create_combobox(
-            tooltip="Select a special stage from the active project", layout=toolbar)
-
-        for attribute, title, tooltip in (
-            ("btn_stage_new", "New", "Create a special stage"),
-            ("btn_stage_load", "Load", "Load a special stage"),
-            ("btn_stage_save", "Save", "Save the current special stage"),
-            ("btn_stage_save_as", "Save As...", "Save the stage to another file"),
-            ("btn_stage_remove", "Remove", "Remove the stage from the project"),
-        ):
-            setattr(self, attribute, create_pushbutton(
-                title, tooltip=tooltip, layout=toolbar))
-        toolbar.addSpacing(12)
-        self.format_label = create_label("Format: Sonic 1", layout=toolbar)
-        toolbar.addStretch()
-        return toolbar
-
     def ui_build_stage_panel(self):
         panel = QtW.QWidget()
         layout = QtW.QVBoxLayout(panel)
@@ -86,7 +93,6 @@ class SpecStageEditor(QtW.QWidget):
         layout.addWidget(self.ui_build_stage_viewer(), stretch=2)
         layout.addWidget(self.ui_build_file_manager(), stretch=1)
         return panel
-
 
     def ui_build_stage_viewer(self):
         box = QtW.QGroupBox("Special Stage Editor")
@@ -126,7 +132,6 @@ class SpecStageEditor(QtW.QWidget):
         canvas_row.addWidget(self.stage_scroll, stretch=1)
         layout.addLayout(canvas_row, stretch=1)
         return box
-
 
     def ui_build_file_manager(self):
         self.stage_file_group = CollapsiblePanel(

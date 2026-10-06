@@ -11,6 +11,7 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 
 from UI.collapse_panel import CollapsiblePanel
+from UI.file_toolbar import create_file_toolbar
 from UI.widgets import (
     create_combobox,
     create_label,
@@ -31,6 +32,18 @@ class TilemapEditor(QtW.QWidget):
         self.tilemap_width = 40
         self.tilemap_height = 28
         self.tilemap_zoom = 2
+
+        # "Dirty flag" - Cleared if current state matches last saved state
+        self._unsaved_changes = False
+
+        # ui_init()
+        self.content_splitter = None
+
+        # ui_build_file_toolbar()
+        self.tilemap_dropdown = create_combobox(
+            tooltip="Select a tilemap from the active project")
+        self.unsaved_label = create_label("Unsaved Changes")
+
         self.ui_init()
 
     # --------------------------------------------------
@@ -39,10 +52,19 @@ class TilemapEditor(QtW.QWidget):
     def ui_init(self):
         """Build the tile painter/file panel and the art placement panel."""
         layout = QtW.QVBoxLayout(self)
-        layout.addLayout(self.ui_build_file_toolbar())
 
-        tilemap_panel = self.ui_build_tilemap_panel()
-        editing_panel = self.ui_build_editing_panel()
+        # TOP PANEL TOOLBAR
+        toolbar = create_file_toolbar(self.tilemap_dropdown, self.unsaved_label,
+            resource_name="tilemap", unsaved_changes=self._unsaved_changes,
+            on_new=None, on_load=None,
+            on_save=None, on_save_as=None,
+            on_remove=None)
+        layout.addLayout(toolbar)
+
+        tilemap_panel = self.ui_build_tilemap_panel()   # LEFT PANEL: Tilemap View and File Manager
+        editing_panel = self.ui_build_editing_panel()   # RIGHT PANEL: Editing Controls
+
+        # Horizontal splitter between the sprite viewer and editor
         self.content_splitter = create_splitter(
             (tilemap_panel, editing_panel),
             orientation=Qt.Orientation.Horizontal,
@@ -59,26 +81,6 @@ class TilemapEditor(QtW.QWidget):
                     widget.setEnabled(False)
         for table in (self.art_file_table, self.map_file_table, self.pal_file_table):
             table.setEditTriggers(QtW.QAbstractItemView.EditTrigger.NoEditTriggers)
-
-    def ui_build_file_toolbar(self):
-        toolbar = QtW.QHBoxLayout()
-        toolbar.setSpacing(4)
-        toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        self.tilemap_dropdown = create_combobox(
-            tooltip="Select a tilemap from the active project", layout=toolbar)
-
-        for attribute, title, tooltip in (
-            ("btn_tilemap_new", "New", "Create a tilemap"),
-            ("btn_tilemap_load", "Load", "Load a tilemap"),
-            ("btn_tilemap_save", "Save", "Save the current tilemap"),
-            ("btn_tilemap_save_as", "Save As...", "Save the tilemap to another file"),
-            ("btn_tilemap_remove", "Remove", "Remove the tilemap from the project"),
-        ):
-            setattr(self, attribute, create_pushbutton(
-                title, tooltip=tooltip, layout=toolbar))
-        toolbar.addStretch()
-        return toolbar
 
     def ui_build_tilemap_panel(self):
         panel = QtW.QWidget()

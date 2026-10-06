@@ -10,6 +10,7 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
 
 from UI.collapse_panel import CollapsiblePanel
+from UI.file_toolbar import create_file_toolbar
 from UI.widgets import (
     create_combobox,
     create_label,
@@ -29,10 +30,20 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_canvas_height = 256
         self.sprite_zoom = 2
 
-        # UI Widget handlers
+        # "Dirty flag" - Cleared if current state matches last saved state
+        self._unsaved_changes = False
 
+        # UI Widget handlers
         # ui_init()
         self.content_splitter = None
+
+        # ui_build_file_toolbar()
+        self.spr_dropdown = create_combobox(
+            tooltip="Select a sprite build from the active project")
+        self.unsaved_label = create_label("Unsaved Changes")
+
+        # ui_build_sprite_panel()
+        self.btn_clear_spritedata = create_pushbutton("Clear Data", tooltip="Clear the current sprite data")
 
         self.ui_init()
 
@@ -44,7 +55,12 @@ class SpriteEditor(QtW.QWidget):
         layout = QtW.QVBoxLayout(self)
 
         # TOP PANEL TOOLBAR
-        layout.addLayout(self.ui_build_file_toolbar())
+        toolbar = create_file_toolbar(self.spr_dropdown, self.unsaved_label,
+            resource_name="sprite build", unsaved_changes=self._unsaved_changes,
+            on_new=None, on_load=None,
+            on_save=None, on_save_as=None,
+            on_remove=None)
+        layout.addLayout(toolbar)
 
         sprite_panel = self.ui_build_sprite_panel()     # LEFT PANEL: Sprite View and File Manager
         editing_panel = self.ui_build_editing_panel()   # RIGHT PANEL: Editing Controls
@@ -66,37 +82,6 @@ class SpriteEditor(QtW.QWidget):
         for table in (self.art_file_table, self.map_file_table,
                       self.pal_file_table, self.piece_list_table):
             table.setEditTriggers(QtW.QAbstractItemView.EditTrigger.NoEditTriggers)
-
-    def ui_build_file_toolbar(self):
-        """
-        File toolbar constructor (Dropdown and file buttons)
-
-        Returns:
-            QtW.QHBoxLayout (toolbar; Contains ComboBox and PushButtons)
-        """
-        toolbar = QtW.QHBoxLayout()
-        toolbar.setSpacing(4)
-        toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        # Sprite Build Dropdown
-        self.spr_dropdown = create_combobox(
-            tooltip="Select a sprite build from the active project",
-            layout=toolbar)
-
-        # File Buttons
-        create_pushbutton("New", tooltip="Create a new sprite build",
-            layout=toolbar)
-        create_pushbutton("Load", tooltip="Load an existing sprite build",
-            layout=toolbar)
-        create_pushbutton("Save", tooltip="Save the current sprite build",
-            layout=toolbar)
-        create_pushbutton("Remove", tooltip="Remove the current sprite build from the project",
-            layout=toolbar)
-        create_pushbutton("Clear Data", tooltip="Clear the current sprite data",
-            layout=toolbar)
-
-        toolbar.addStretch()
-        return toolbar
 
     def ui_build_sprite_panel(self):
         sprite_panel = QtW.QWidget()
@@ -147,6 +132,9 @@ class SpriteEditor(QtW.QWidget):
         self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3,
             width=40, tooltip="Base Palette Line",
             layout=file_header_layout)
+
+        # Clear sprite data button
+        file_header_layout.addWidget(self.btn_clear_spritedata)
 
         # File-related elements here
         self.filemanager_tabs = QtW.QTabWidget()

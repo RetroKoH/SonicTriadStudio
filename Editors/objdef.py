@@ -10,7 +10,9 @@ definition file format or game-specific serialization is prescribed here.
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 
+from UI.file_toolbar import create_file_toolbar
 from UI.widgets import (
     create_combobox,
     create_label,
@@ -26,6 +28,23 @@ class ObjectDefEditor(QtW.QWidget):
     def __init__(self, project=None):
         super().__init__()
         self.project = project
+
+        # Palette Storage (64 colors)
+        self.colors = [QColor(0, 0, 0) for _i in range(64)]
+        self.boxes = []
+
+        # "Dirty flag" - Cleared if current state matches last saved state
+        self._unsaved_changes = False
+
+        # UI Widget handlers
+        # ui_init()
+        self.content_splitter = None
+
+        # ui_build_file_toolbar()
+        self.objdef_dropdown = create_combobox(
+            tooltip="Select object definition set from the active project")
+        self.unsaved_label = create_label("Unsaved Changes")
+
         self.ui_init()
 
     # --------------------------------------------------
@@ -34,39 +53,27 @@ class ObjectDefEditor(QtW.QWidget):
     def ui_init(self):
         """Construct the toolbar and three panel columns."""
         layout = QtW.QVBoxLayout(self)
-        layout.addLayout(self.ui_build_file_toolbar())
+
+        # TOP PANEL TOOLBAR
+        toolbar = create_file_toolbar(self.objdef_dropdown, self.unsaved_label,
+            resource_name="definition set", unsaved_changes=self._unsaved_changes,
+            on_new=None, on_load=None,
+            on_save=None, on_save_as=None,
+            on_remove=None)
+        layout.addLayout(toolbar)
 
         definitions_panel = self.ui_build_definitions_panel()
         preview_panel = self.ui_build_object_viewer()
         editing_panel = self.ui_build_editing_panel()
+
+        # THree-way horizontal splitter
         self.content_splitter = create_splitter(
             (definitions_panel, preview_panel, editing_panel),
             orientation=Qt.Orientation.Horizontal,
             stretch_factors=(0, 1, 1), sizes=(280, 520, 420))
+
         self.content_splitter.setChildrenCollapsible(False)
         layout.addWidget(self.content_splitter, stretch=1)
-
-    def ui_build_file_toolbar(self):
-        toolbar = QtW.QHBoxLayout()
-        toolbar.setSpacing(4)
-        toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        # Definition Dropdown
-        self.definition_set_dropdown = create_combobox(
-            tooltip="Object definition set used by a level", layout=toolbar)
-
-        for attribute, title, tooltip in (
-            ("btn_file_new", "New", "Create an object definition set"),
-            ("btn_file_load", "Load", "Load an object definition set"),
-            ("btn_file_save", "Save", "Save the current definition set"),
-            ("btn_file_save_as", "Save As...", "Save to another file"),
-            ("btn_file_remove", "Remove", "Remove the set from the project"),
-        ):
-            setattr(self, attribute, create_pushbutton(
-                title, tooltip=tooltip, enabled=False, layout=toolbar))
-
-        toolbar.addStretch()
-        return toolbar
 
     def ui_build_object_viewer(self):
         box = QtW.QGroupBox("Object Preview")

@@ -10,6 +10,7 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
 
 from UI.collapse_panel import CollapsiblePanel
+from UI.file_toolbar import create_file_toolbar
 from UI.widgets import (
     create_combobox,
     create_label,
@@ -25,6 +26,18 @@ class AnimationEditor(QtW.QWidget):
     def __init__(self, project=None):
         super().__init__()
         self.project = project
+
+        # "Dirty flag" - Cleared if current state matches last saved state
+        self._unsaved_changes = False
+
+        # ui_init()
+        self.content_splitter = None
+
+        # ui_build_file_toolbar()
+        self.anim_dropdown = create_combobox(
+            tooltip="Select an animation from the active project")
+        self.unsaved_label = create_label("Unsaved Changes")
+
         self.ui_init()
 
     # --------------------------------------------------
@@ -35,7 +48,12 @@ class AnimationEditor(QtW.QWidget):
         layout = QtW.QVBoxLayout(self)
 
         # TOP PANEL TOOLBAR
-        layout.addLayout(self.ui_build_file_toolbar())
+        toolbar = create_file_toolbar(self.anim_dropdown, self.unsaved_label,
+            resource_name="animation", unsaved_changes=self._unsaved_changes,
+            on_new=None, on_load=None,
+            on_save=None, on_save_as=None,
+            on_remove=None)
+        layout.addLayout(toolbar)
 
         animation_panel = self.ui_build_animation_panel()  # LEFT PANEL: Animation Viewer
         editing_panel = self.ui_build_editing_panel()  # RIGHT PANEL: Editing Controls
@@ -50,37 +68,6 @@ class AnimationEditor(QtW.QWidget):
 
         # Testing a dynamic status bar. I will NOT implement it here
         #layout.addLayout(self.ui_build_status_bar())
-
-    def ui_build_file_toolbar(self):
-        """
-        File toolbar constructor (Dropdown and file buttons)
-
-        Returns:
-            QtW.QHBoxLayout (file_toolbar; Contains ComboBox and PushButtons)
-        """
-        toolbar = QtW.QHBoxLayout()
-        toolbar.setSpacing(4)
-        toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        # Animation Dropdown
-        self.anim_dropdown = create_combobox(
-            tooltip="Select an animation from the active project",
-            layout=toolbar)
-
-        # File Buttons
-        create_pushbutton("New", tooltip="Create an animation",
-            layout=toolbar)
-        create_pushbutton("Load", tooltip="Load animation data",
-            layout=toolbar)
-        create_pushbutton("Save", tooltip="Save the current animation",
-            layout=toolbar)
-        create_pushbutton("Save As...", tooltip="Save animation data to another file",
-            layout=toolbar)
-        create_pushbutton("Remove", tooltip="Remove the current animation",
-            layout=toolbar)
-
-        toolbar.addStretch()
-        return toolbar
 
     def ui_build_animation_panel(self):
         animation_panel = QtW.QWidget()
