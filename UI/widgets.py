@@ -1,6 +1,19 @@
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 
+def create_checkbox(
+    text="", *, parent=None, checked=False, layout=None
+):
+    checkbox = QtW.QCheckBox(text, parent)
+
+    if checked is not None:
+        checkbox.setChecked(checked)
+
+    if layout is not None:
+        layout.addWidget(checkbox)
+
+    return checkbox
+
 def create_combobox(
     *, parent=None, max_width=300, fixed_height=25,
     tooltip="", items=None, on_index_changed=None, layout=None

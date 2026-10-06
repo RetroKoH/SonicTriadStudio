@@ -1,3 +1,11 @@
+"""Palette Editor
+
+Carries an array of functions to edit color palettes of all sizes in a variety of ways.
+Supports anywhere from 1 to 256 colors. This seems superfluous, since the Mega Drive's
+CRAM only holds 64 colors at once, but this design choice allows the user to freely work
+on larger color groups such as cycle palettes and menu palette arrays.
+"""
+
 from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
@@ -191,11 +199,11 @@ class PaletteEditor(QtW.QWidget):
         btn_paste = create_pushbutton("Paste", tooltip="Paste over the selected color(s)", width=55,
             on_clicked=lambda _: self.clipboard_paste("over", self.active_index))
 
-        self.btn_edit_group.addButton(btn_undo, id=0)
-        self.btn_edit_group.addButton(btn_redo, id=1)
-        self.btn_edit_group.addButton(btn_copy, id=2)
-        self.btn_edit_group.addButton(btn_cut, id=3)
-        self.btn_edit_group.addButton(btn_paste, id=4)
+        self.btn_edit_group.addButton(btn_undo, id=EDIT_UNDO)
+        self.btn_edit_group.addButton(btn_redo, id=EDIT_REDO)
+        self.btn_edit_group.addButton(btn_copy, id=EDIT_COPY)
+        self.btn_edit_group.addButton(btn_cut, id=EDIT_CUT)
+        self.btn_edit_group.addButton(btn_paste, id=EDIT_PASTE)
 
         for button in self.btn_edit_group.buttons():
             edit_layout.addWidget(button)

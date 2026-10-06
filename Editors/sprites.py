@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt, QSize
 from UI.collapse_panel import CollapsiblePanel
 from UI.file_toolbar import create_file_toolbar
 from UI.widgets import (
+    create_checkbox,
     create_combobox,
     create_label,
     create_lineedit,
@@ -20,6 +21,9 @@ from UI.widgets import (
     create_splitter,
     create_spinbox,
 )
+
+# Edit toolbar button IDs
+EDIT_UNDO, EDIT_REDO = 0, 1
 
 class SpriteEditor(QtW.QWidget):
     def __init__(self, project=None):
@@ -44,6 +48,11 @@ class SpriteEditor(QtW.QWidget):
 
         # ui_build_frame_viewer()
         self.sprite_label = QtW.QLabel("Sprite preview")
+        self.btn_zoom_reset = create_pushbutton("1:1", tooltip="Reset preview zoom")
+        self.btn_preview_center = create_pushbutton("Center", tooltip="Center the preview")
+        self.origin_checkbox = create_checkbox("Origin", checked=True)
+        self.grid_checkbox = create_checkbox("Grid")
+        self.bounds_checkbox = create_checkbox("Bounds")
 
         # ui_build_file_manager()
         self.spr_file_group = CollapsiblePanel("Sprite Data and Files",
@@ -208,7 +217,48 @@ class SpriteEditor(QtW.QWidget):
         sprite_box = QtW.QGroupBox("Sprite Viewer")
         sprite_viewer = QtW.QVBoxLayout(sprite_box)
 
+        # Palette Editing Toolbar
+        edit_layout = QtW.QHBoxLayout()
+        edit_layout.setSpacing(4)
+
+        # Set-up Edit Group (Created in __init__)
+        self.btn_edit_group.setExclusive(False)
+
+        btn_undo = create_pushbutton("Undo", tooltip="Undo the last change made", width=55)
+        btn_redo = create_pushbutton("Redo", tooltip="Redo the last undone change", width=55,)
+        # Copy, Cut and Paste won't go here.
+
+        self.btn_edit_group.addButton(btn_undo, id=EDIT_UNDO)
+        self.btn_edit_group.addButton(btn_redo, id=EDIT_REDO)
+
+        for button in self.btn_edit_group.buttons():
+            edit_layout.addWidget(button)
+
+        edit_layout.addStretch()
+
+        # Add widgets from animation editor
+        edit_layout.addWidget(QtW.QLabel("Zoom: 2×"))
+        edit_layout.addWidget(self.btn_zoom_reset)
+        edit_layout.addWidget(self.btn_preview_center)
+
+        edit_layout.addStretch()
+
+        # Visuals toggles
+        for checkbox in (self.origin_checkbox, self.grid_checkbox, self.bounds_checkbox):
+            edit_layout.addWidget(checkbox)
+
+        sprite_viewer.addLayout(edit_layout)
+
         # Scrollable Sprite Viewer
+        preview_hint_label = create_label(
+            "Scroll to Zoom | Click-drag to Pan",
+            layout=sprite_viewer)
+
+        # To-Do: add this to QSS
+        hint_font = preview_hint_label.font()
+        hint_font.setPointSizeF(max(8.0, hint_font.pointSizeF() - 1.0))
+        preview_hint_label.setFont(hint_font)
+
         self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sprite_label.setMargin(0)
         self.sprite_label.setFrameShape(QtW.QFrame.Shape.NoFrame)
