@@ -9,6 +9,9 @@ tabs, splitters, the collapsible file panel and DPLC row visibility still work.
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
 
+from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALEDIT_MAXCOLORS, QCOL_BLACK
+from AssetIO.palettes import decode_palette, encode_palette
+from AssetIO.mappings import *
 from UI.collapse_panel import CollapsiblePanel
 from UI.file_toolbar import create_file_toolbar
 from UI.widgets import (
@@ -193,16 +196,6 @@ class SpriteEditor(QtW.QWidget):
 
         # Close File Manager tray to start
         self.btn_toggle_filemanager.setChecked(False)
-
-        # Disable everything for now
-        for widget_type in (QtW.QPushButton, QtW.QComboBox, QtW.QSpinBox,
-                            QtW.QLineEdit, QtW.QCheckBox):
-            for widget in self.findChildren(widget_type):
-                if widget not in (self.btn_toggle_filemanager, self.dplc_cb):
-                    widget.setEnabled(False)
-        for table in (self.art_file_table, self.map_file_table,
-                      self.pal_file_table, self.piece_list_table):
-            table.setEditTriggers(QtW.QAbstractItemView.EditTrigger.NoEditTriggers)
 
     def ui_build_sprite_panel(self):
         sprite_panel = QtW.QWidget()
