@@ -64,9 +64,10 @@ class TilemapEditor(QtW.QWidget):
         toolbar = QtW.QHBoxLayout()
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        create_label("Tilemap:", layout=toolbar)
+
         self.tilemap_dropdown = create_combobox(
             tooltip="Select a tilemap from the active project", layout=toolbar)
+
         for attribute, title, tooltip in (
             ("btn_tilemap_new", "New", "Create a tilemap"),
             ("btn_tilemap_load", "Load", "Load a tilemap"),

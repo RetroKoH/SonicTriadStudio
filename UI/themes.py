@@ -8,7 +8,7 @@ THEMES = {
         "interior": "#181818",          # Widget interior (Scroll area, dropbox interior)
         "text_main": "#E4EEEE",         # Used with all non-header text
         "text_header": "#B8BCC4",       # Used with header text
-        "box_border": "#484848",        # Used only with palette box borders
+        "box_border": "#484848",        # Palette box borders and tab panel (Maybe split these off)
         "background": "#222222",        # Window background
         "fusion_base": "#1C1C1C",       # Inner (Textbox, Scrollbar, Asset Tree)
         "fusion_button": "#343434",     # Tab and buttons (Maybe split these off?)
@@ -156,6 +156,10 @@ def apply_theme(app, *, set_theme=None):
 
     # QWidget#interior: This will change the BG of the palette window to match lineedit
     QSS = f"""
+            QGroupBox#ControlsGroup {{
+                background-color: transparent;
+            }}
+            
             QLabel#headerLabel {{
                 color: {theme["text_header"]};
                 font-size: 18px;
@@ -168,10 +172,6 @@ def apply_theme(app, *, set_theme=None):
                 font-weight: bold;
             }}
             
-            QWidget#interior {{
-                background-color: {theme["interior"]};
-            }}
-
             QLabel#dropZone {{
                 font-size: 16px;
                 font-weight: bold;
@@ -180,10 +180,29 @@ def apply_theme(app, *, set_theme=None):
                 border-radius: 8px;
                 background-color: {theme["interior"]};
             }}
-
-            QGroupBox#ControlsGroup {{
-                background-color: transparent;
+            
+            QTabBar#mainTabBar::tab {{
+                background-color: {theme["box_border"]};
+                color: {theme["text_main"]};
+                
+                border: 1px solid {theme["box_border"]};
+                border-bottom: 3px solid transparent;
+                border-top-left-radius: 3px;
+                border-top-right-radius: 3px;
+    
+                padding: 2px 12px;
+                margin-right: 2px;
             }}
+            
+            QTabBar#mainTabBar::tab:selected {{
+                background-color: {theme["fusion_button"]};
+                border-bottom: 3px solid {theme["highlight"]};
+            }}
+            
+            QWidget#interior {{
+                background-color: {theme["interior"]};
+            }}
+
         """
     app.setStyleSheet(QSS)
 

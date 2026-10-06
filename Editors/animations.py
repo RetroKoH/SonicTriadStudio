@@ -62,7 +62,6 @@ class AnimationEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        create_label("Animation:", layout=toolbar)
         # Animation Dropdown
         self.anim_dropdown = create_combobox(
             tooltip="Select an animation from the active project",

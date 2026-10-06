@@ -51,7 +51,6 @@ class ObjectDefEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        create_label("Definition Set:", layout=toolbar)
         # Definition Dropdown
         self.definition_set_dropdown = create_combobox(
             tooltip="Object definition set used by a level", layout=toolbar)

@@ -31,6 +31,7 @@ class TriadApp(QtW.QMainWindow):
         # Mode Tabs
         self.tabs = QtW.QTabWidget()
         main_layout.addWidget(self.tabs)
+        self.tabs.tabBar().setObjectName("mainTabBar")
 
         # Theme button (Later, this will be a preferences button)
         self.theme_button = QtW.QPushButton("Dark")

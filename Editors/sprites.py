@@ -78,7 +78,6 @@ class SpriteEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        create_label("Sprite Build:", layout=toolbar)
         # Sprite Build Dropdown
         self.spr_dropdown = create_combobox(
             tooltip="Select a sprite build from the active project",

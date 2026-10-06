@@ -61,9 +61,10 @@ class SpecStageEditor(QtW.QWidget):
         toolbar = QtW.QHBoxLayout()
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        create_label("Stage:", layout=toolbar)
+
         self.stage_dropdown = create_combobox(
             tooltip="Select a special stage from the active project", layout=toolbar)
+
         for attribute, title, tooltip in (
             ("btn_stage_new", "New", "Create a special stage"),
             ("btn_stage_load", "Load", "Load a special stage"),
