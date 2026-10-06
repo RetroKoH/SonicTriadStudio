@@ -73,11 +73,15 @@ class PaletteEditor(QtW.QWidget):
         self.max_history = 50
 
         # UI Widget handlers
+
         # ui_init()
         self.content_splitter = None
+
         # ui_build_file_toolbar()
-        self.pal_dropdown = None
+        self.pal_dropdown = create_combobox(
+            tooltip="Select a palette file from the active project", on_index_changed=self._on_pal_dropdown_changed)
         self.unsaved_label = create_label("Unsaved Changes")
+
         # ui_build_palette_panel()
         self.btn_edit_group = QtW.QButtonGroup(self)
         self.grid_layout = None
@@ -85,11 +89,13 @@ class PaletteEditor(QtW.QWidget):
         self.palette_resize_timer = QTimer(self)
         self.clipboard_group = CollapsiblePanel("Clipboard", tooltip="Expand or collapse the palette clipboard")
         self.btn_toggle_clipboard = self.clipboard_group.toggle_button
-        self.btn_clear_clipboard = None
+        self.btn_clear_clipboard = create_pushbutton("Clear",
+            tooltip="Clear out the clipboard", on_clicked=self.clipboard_clear)
         self.clipboard_empty_label = None
         self.clipboard_grid_layout = None
         self.clipboard_scroll = None
         self.palette_splitter = None
+
         # ui_build_editing_panel()
         self.index_label = create_label("Selected Color: #0", object_name="infoLabel")
         self.large_preview = PreviewColorBox()
@@ -162,11 +168,8 @@ class PaletteEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        create_label("Palette:", layout=toolbar)
         # Palette File Dropdown
-        self.pal_dropdown = create_combobox(
-            tooltip="Select a palette file from the active project",
-            on_index_changed=self._on_pal_dropdown_changed, layout=toolbar)
+        toolbar.addWidget(self.pal_dropdown, stretch=1)
 
         # File Buttons
         create_pushbutton("New", tooltip="Create a new palette",
@@ -261,9 +264,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_scroll.viewport().installEventFilter(self)
 
         # Palette Clipboard (Within a collapsible panel)
-        self.btn_clear_clipboard = create_pushbutton("Clear",
-            tooltip="Clear out the clipboard", on_clicked=self.clipboard_clear,
-            layout=self.clipboard_group.header_layout)
+        layout.addWidget(self.btn_clear_clipboard)
 
         # Scrollable clipboard grid
         clipboard = QtW.QWidget()

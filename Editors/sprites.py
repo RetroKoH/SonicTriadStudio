@@ -28,6 +28,12 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_canvas_width = 256
         self.sprite_canvas_height = 256
         self.sprite_zoom = 2
+
+        # UI Widget handlers
+
+        # ui_init()
+        self.content_splitter = None
+
         self.ui_init()
 
     # --------------------------------------------------
@@ -417,6 +423,19 @@ class SpriteEditor(QtW.QWidget):
         self.vram_scroll = create_scrollarea(self.vram_label, layout=art_viewer_layout)
         self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignRight)
 
+        tile_controls = QtW.QHBoxLayout()
+
+        self.arrange_tiles = create_pushbutton("Arrange Tiles",
+            width=90, tooltip="Arrange tiles by sprite usage",
+            enabled=False, layout=tile_controls)
+
+        self.strip_tiles = create_pushbutton("Strip Unused Tiles",
+            width=110, tooltip="Remove all unused tiles",
+            enabled=False, layout=tile_controls)
+
+        tile_controls.addStretch()
+        art_viewer_layout.addLayout(tile_controls)
+
         return self.vram_box
 
     def ui_build_sprite_viewer(self):
@@ -475,16 +494,30 @@ class SpriteEditor(QtW.QWidget):
             tooltip="Add a frame",
             enabled=False, layout=frame_buttons)
 
-        self.btn_frame_clone = create_pushbutton("Clone Frame",
-            width=85, tooltip="Duplicate the current mapping frame",
-            enabled=False, layout=frame_buttons)
-
         self.btn_frame_remove = create_pushbutton("Remove Frame",
             width=85, tooltip="Remove the current frame",
             enabled=False, layout=frame_buttons)
 
+        self.btn_frame_copy = create_pushbutton("Copy Frame",
+            width=85, tooltip="Duplicate the current mapping frame",
+            enabled=False, layout=frame_buttons)
+
         frame_buttons.addStretch()
         map_editor.addLayout(frame_buttons)
+
+        frame_tile_buttons = QtW.QHBoxLayout()
+        frame_tile_buttons.setSpacing(4)
+
+        self.btn_frame_clone = create_pushbutton("Clone Frame and Tiles",
+            width=125, tooltip="Clone the current frame, and its tiles",
+            enabled=False, layout=frame_tile_buttons)
+
+        self.btn_frame_erase = create_pushbutton("Erase Frame and Tiles",
+            width=125, tooltip="Delete the current frame, and its tiles",
+            enabled=False, layout=frame_tile_buttons)
+
+        frame_tile_buttons.addStretch()
+        map_editor.addLayout(frame_tile_buttons)
 
         piece_list = QtW.QHBoxLayout()
         piece_list.addWidget(self.ui_build_piece_list())

@@ -106,7 +106,7 @@ THEMES = {
         # Additional styling colors (add to all palettes)
         "bg_selected": "#545767",
         "separator": "#686C74",
-    },
+    }
 }
 
 # Reverse lookup themes dict
