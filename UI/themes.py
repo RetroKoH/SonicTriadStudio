@@ -3,7 +3,8 @@ from PyQt6.QtGui import QPalette, QColor
 
 THEMES = {
     "Dark": {
-        "highlight": "#8088F8",         # Used for text highlight. (Make dropbox outline and box_selected their own color)
+        "highlight": "#8088F8",         # Used for text highlight
+        "outline": "#8088F8",           # Dropbox outline and box_selected (UNUSED ATM)
         "interior": "#181818",          # Widget interior (Scroll area, dropbox interior)
         "text_main": "#E4EEEE",         # Used with all non-header text
         "text_header": "#B8BCC4",       # Used with header text
@@ -13,12 +14,12 @@ THEMES = {
         "fusion_button": "#343434",     # Tab and buttons (Maybe split these off?)
 
         # Additional styling colors (add to all palettes)
-        "text_heading": "#CDD0FF",
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
     "Light": {
         "highlight": "#5058C0",
+        "outline": "#5058C0",
         "interior": "#F8F8F8",
         "text_main": "#101828",
         "text_header": "#586068",
@@ -28,12 +29,12 @@ THEMES = {
         "fusion_button": "#DCE0E4",
 
         # Additional styling colors (add to all palettes)
-        "text_heading": "#CDD0FF",
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
     "Ash": {
         "highlight": "#A6ACFF",
+        "outline": "#A6ACFF",
         "interior": "#383A3E",
         "text_main": "#F2F3F5",
         "text_header": "#C3C6DD",
@@ -43,12 +44,12 @@ THEMES = {
         "fusion_button": "#4D5056",
 
         # Additional styling colors (add to all palettes)
-        "text_heading": "#CDD0FF",
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
     "SSRG": {
         "highlight": "#3266D1",
+        "outline": "#3266D1",
         "interior": "#F0F7FC",
         "text_main": "#031971",
         "text_header": "#062E82",
@@ -58,12 +59,12 @@ THEMES = {
         "fusion_button": "#DDF0FC",
 
         # Additional styling colors (add to all palettes)
-        "text_heading": "#CDD0FF",
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
     "Sonic Retro": {
         "highlight": "#3266D1",
+        "outline": "#CFDF00",
         "interior": "#181818",
         "text_main": "#E4EEEE",
         "text_header": "#CFDF00",
@@ -73,7 +74,21 @@ THEMES = {
         "fusion_button": "#303018",
 
         # Additional styling colors (add to all palettes)
-        "text_heading": "#CDD0FF",
+        "bg_selected": "#545767",
+        "separator": "#686C74",
+    },
+    "Frost Mint": {
+        "highlight": "#7FCAB2",
+        "outline": "#48AD8B",
+        "interior": "#F8FAFC",
+        "text_main": "#102818",
+        "text_header": "#2D9C7B",
+        "box_border": "#989898",
+        "background": "#F6FCFB",
+        "fusion_base": "#FFFFFF",
+        "fusion_button": "#DEF4ED",
+
+        # Additional styling colors (add to all palettes)
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
