@@ -42,8 +42,119 @@ class SpriteEditor(QtW.QWidget):
             tooltip="Select a sprite build from the active project")
         self.unsaved_label = create_label("Unsaved Changes")
 
-        # ui_build_sprite_panel()
+        # ui_build_frame_viewer()
+        self.sprite_label = QtW.QLabel("Sprite preview")
+
+        # ui_build_file_manager()
+        self.spr_file_group = CollapsiblePanel("Sprite Data and Files",
+            tooltip="Expand or collapse the file manager")
+        self.btn_toggle_filemanager = self.spr_file_group.toggle_button
+        self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
+            display_base=16, prefix="$", width=50, tooltip="Starting VRAM Tile Index (Hex)")
+        self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3, width=40, tooltip="Base Palette Line")
         self.btn_clear_spritedata = create_pushbutton("Clear Data", tooltip="Clear the current sprite data")
+        self.filemanager_tabs = QtW.QTabWidget()
+
+        # ui_build_art_tab()
+        self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles", width=50)
+        self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles", width=50, enabled=False)
+        self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data", width=50, enabled=False)
+        self.btn_art_remove = create_pushbutton("Remove", tooltip="Remove the selected art tile entry",
+            width=50, enabled=False)
+        self.art_file_table = QtW.QTableWidget(0, 4)
+
+        # ui_build_mappings_tab()
+        self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings", width=50)
+        self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings", width=50, enabled=False)
+        self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data", width=50, enabled=False)
+        self.btn_map_remove = create_pushbutton("Remove", tooltip="Remove mappings data", width=50, enabled=False)
+        self.map_dropdown = QtW.QComboBox()
+        self.macro_cb = QtW.QCheckBox("Save with Macros")
+        self.dplc_cb = QtW.QCheckBox("Use DPLCs")
+        self.map_file_table = QtW.QTableWidget(2, 3)
+        self.map_path_input = QtW.QLineEdit()
+        self.map_name_input = QtW.QLineEdit()
+        self.dplc_path_input = QtW.QLineEdit()
+        self.dplc_name_input = QtW.QLineEdit()
+
+        # ui_build_palettes_tab()
+        self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes", width=50)
+        self.btn_pal_load = create_pushbutton("Load", tooltip="Load added palettes", width=50, enabled=False)
+        self.btn_pal_save = create_pushbutton("Save", tooltip="Save palette data", width=50, enabled=False)
+        self.btn_pal_remove = create_pushbutton("Remove", tooltip="Remove the selected palette entry",
+            width=50, enabled=False)
+        self.pal_file_table = QtW.QTableWidget(0, 2)
+
+        # ui_build_editing_panel()
+        self.editing_tabs = QtW.QTabWidget()
+
+        # ui_build_art_viewer()
+        self.vram_box = QtW.QGroupBox()
+        self.viewer_line_combo = create_combobox(
+            tooltip="Choose a palette line to view art tiles with",
+            items=["Line 0", "Line 1", "Line 2", "Line 3"])
+        self.vram_label = QtW.QLabel("Art tile preview")
+        self.vram_scroll = create_scrollarea(self.vram_label)
+        self.arrange_tiles = create_pushbutton("Arrange Tiles",
+            width=90, tooltip="Arrange tiles by sprite usage", enabled=False)
+        self.strip_tiles = create_pushbutton("Strip Unused Tiles",
+            width=110, tooltip="Remove all unused tiles", enabled=False)
+
+        # ui_build_sprite_viewer()
+        self.sprite_frame_list = QtW.QListWidget()
+
+        # ui_build_map_editor()
+        self.map_edit_box = QtW.QGroupBox()
+        self.frame_spinbox = create_spinbox(minimum=0, maximum=0)
+        self.frame_name_input = create_lineedit(tooltip="Name of the mapping frame (in ASM files)")
+        self.btn_frame_add = create_pushbutton("Add Frame", tooltip="Add a frame", enabled=False)
+        self.btn_frame_remove = create_pushbutton("Remove Frame", width=85, tooltip="Remove the current frame",
+            enabled=False)
+        self.btn_frame_copy = create_pushbutton("Copy Frame", width=85,
+            tooltip="Duplicate the current mapping frame", enabled=False)
+        self.btn_frame_clone = create_pushbutton("Clone Frame and Tiles", width=125,
+            tooltip="Clone the current frame, and its tiles", enabled=False)
+        self.btn_frame_erase = create_pushbutton("Erase Frame and Tiles", width=125,
+            tooltip="Delete the current frame, and its tiles", enabled=False)
+        self.btn_piece_add = create_pushbutton("Add Piece", tooltip="Add a piece to the current frame",
+            enabled=False)
+        self.btn_piece_remove = create_pushbutton("Remove Pieces", width=85,
+            tooltip="Remove the selected pieces", enabled=False)
+        self.index_label = create_label("Piece Properties", object_name="infoLabel")
+
+        # ui_build_piece_list()
+        self.piece_list_table = QtW.QTableWidget(0, 1)
+
+        # ui_build_piece_controls()
+        self.piece_x_spinbox = create_spinbox(minimum=-128, maximum=127, width=45, keyboard_tracking=False,
+            tooltip="Horizontal position relative to the sprite origin")
+        self.piece_y_spinbox = create_spinbox(minimum=-128, maximum=127, width=45, keyboard_tracking=False,
+            tooltip="Vertical position relative to the sprite origin")
+        self.piece_tile_spinbox = create_spinbox(minimum=0, maximum=2047, display_base=16, prefix="$",
+            width=55, keyboard_tracking=False, tooltip="Tile index before adding the sprite's base VRAM index")
+        self.piece_width_spinbox = create_spinbox(minimum=1, maximum=4, value=1, width=40, keyboard_tracking=False,
+            tooltip="Piece Width (tiles)")
+        self.piece_height_spinbox = create_spinbox(minimum=1, maximum=4, value=1, width=40, keyboard_tracking=False,
+            tooltip="Piece Height (tiles)")
+        self.piece_palette_spinbox = create_spinbox(minimum=0, maximum=3, width=40, keyboard_tracking=False,
+            tooltip="Palette line before adding the sprite's base palette line")
+        self.piece_x_flip_checkbox = QtW.QCheckBox("X-Flip")
+        self.piece_y_flip_checkbox = QtW.QCheckBox("Y-Flip")
+        self.piece_priority_checkbox = QtW.QCheckBox("Priority")
+        # Group widgets by type
+        self.piece_spinboxes = {
+            "x": self.piece_x_spinbox,
+            "y": self.piece_y_spinbox,
+            "tile": self.piece_tile_spinbox,
+            "width": self.piece_width_spinbox,
+            "height": self.piece_height_spinbox,
+            "palette": self.piece_palette_spinbox,
+        }
+        self.piece_checkboxes = {
+            "priority": self.piece_priority_checkbox,
+            "x_flip": self.piece_x_flip_checkbox,
+            "y_flip": self.piece_y_flip_checkbox,
+        }
 
         self.ui_init()
 
@@ -98,7 +209,6 @@ class SpriteEditor(QtW.QWidget):
         sprite_viewer = QtW.QVBoxLayout(sprite_box)
 
         # Scrollable Sprite Viewer
-        self.sprite_label = QtW.QLabel("Sprite preview")
         self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sprite_label.setMargin(0)
         self.sprite_label.setFrameShape(QtW.QFrame.Shape.NoFrame)
@@ -114,30 +224,21 @@ class SpriteEditor(QtW.QWidget):
 
     def ui_build_file_manager(self):
         # Sprite File Manager
-        self.spr_file_group = CollapsiblePanel("Sprite Data and Files",
-            tooltip="Expand or collapse the file manager")
-
-        self.btn_toggle_filemanager = self.spr_file_group.toggle_button
         file_header_layout = self.spr_file_group.header_layout
 
         # The following items emulate an in-game object's art_tile OST
         # VRAM Address Selector
         file_header_layout.addWidget(QtW.QLabel("VRAM Address:"))
-        self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
-            display_base=16, prefix="$", width=50, tooltip="Starting VRAM Tile Index (Hex)",
-            layout=file_header_layout)
+        file_header_layout.addWidget(self.vram_spinbox)
 
         # VRAM Base Palette Selector
         file_header_layout.addWidget(QtW.QLabel("Palette:"))
-        self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3,
-            width=40, tooltip="Base Palette Line",
-            layout=file_header_layout)
+        file_header_layout.addWidget(self.sprpal_spinbox)
 
         # Clear sprite data button
         file_header_layout.addWidget(self.btn_clear_spritedata)
 
         # File-related elements here
-        self.filemanager_tabs = QtW.QTabWidget()
         self.filemanager_tabs.addTab(self.ui_build_art_tab(), "Art")
         self.filemanager_tabs.addTab(self.ui_build_mappings_tab(), "Mappings")
         self.filemanager_tabs.addTab(self.ui_build_palettes_tab(), "Palettes")
@@ -155,19 +256,14 @@ class SpriteEditor(QtW.QWidget):
         toolbar.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # File actions remain disabled placeholders
-        self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles",
-            width=50, layout=toolbar)
-        self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles",
-            width=50, enabled=False, layout=toolbar)
-        self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
-            width=50, enabled=False, layout=toolbar)
-        self.btn_art_remove = create_pushbutton("Remove", tooltip="Remove the selected art tile entry",
-            width=50, enabled=False, layout=toolbar)
+        toolbar.addWidget(self.btn_art_add)
+        toolbar.addWidget(self.btn_art_load)
+        toolbar.addWidget(self.btn_art_save)
+        toolbar.addWidget(self.btn_art_remove)
 
         layout.addLayout(toolbar)
 
         # Table: initially zero rows, four columns
-        self.art_file_table = QtW.QTableWidget(0, 4)
         table = self.art_file_table
 
         table.setHorizontalHeaderLabels(["File", "Compression", "VRAM location", "Tile count"])
@@ -200,34 +296,30 @@ class SpriteEditor(QtW.QWidget):
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings",
-            width=50, layout=toolbar)
-        self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings",
-            width=50, enabled=False, layout=toolbar)
-        self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data",
-            width=50, enabled=False, layout=toolbar)
-        self.btn_map_remove = create_pushbutton("Remove", tooltip="Remove mappings data",
-            width=50, enabled=False, layout=toolbar)
+        # File actions remain disabled placeholders
+        toolbar.addWidget(self.btn_map_add)
+        toolbar.addWidget(self.btn_map_load)
+        toolbar.addWidget(self.btn_map_save)
+        toolbar.addWidget(self.btn_map_remove)
 
         toolbar.addStretch()
 
         # Options above the table
         toolbar.addWidget(QtW.QLabel("Format:"))
 
-        self.map_dropdown = QtW.QComboBox()
+        # Map version dropdown (Add custom support)
         self.map_dropdown.addItems(["Sonic 1", "Sonic 2", "Sonic 3K"])
         toolbar.addWidget(self.map_dropdown)
 
-        self.macro_cb = QtW.QCheckBox("Save with Macros")
+        # MapMacro checkbox
         toolbar.addWidget(self.macro_cb)
 
-        self.dplc_cb = QtW.QCheckBox("Use DPLCs")
+        # DPLC checkbox
         toolbar.addWidget(self.dplc_cb)
 
         layout.addLayout(toolbar)
 
         # Table
-        self.map_file_table = QtW.QTableWidget(2, 3)
         table = self.map_file_table
 
         table.setHorizontalHeaderLabels(["Type", "File", "Map Label"])
@@ -254,19 +346,14 @@ class SpriteEditor(QtW.QWidget):
             table.setItem(row, 0, item)
 
         # Row 0: Mapping file
-        self.map_path_input = QtW.QLineEdit()
         self.map_path_input.setPlaceholderText("Mapping Filepath...")
         table.setCellWidget(0, 1, self.map_path_input)
 
-        self.map_name_input = QtW.QLineEdit()
         self.map_name_input.setPlaceholderText("Map_")
         table.setCellWidget(0, 2, self.map_name_input)
 
         # Row 1: DPLC file
-        self.dplc_path_input = QtW.QLineEdit()
         self.dplc_path_input.setPlaceholderText("DPLC Filepath...")
-
-        self.dplc_name_input = QtW.QLineEdit()
         self.dplc_name_input.setPlaceholderText("DPLC_")
 
         dplc_file_widget = QtW.QWidget()
@@ -295,24 +382,20 @@ class SpriteEditor(QtW.QWidget):
         tab = QtW.QWidget()
         layout = QtW.QVBoxLayout(tab)
 
-        # File buttons
+        # File toolbar
         toolbar = QtW.QHBoxLayout()
         toolbar.setSpacing(4)
         toolbar.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes",
-            width=50, layout=toolbar)
-        self.btn_pal_load = create_pushbutton("Load", tooltip="Load added palettes",
-            width=50, enabled=False, layout=toolbar)
-        self.btn_pal_save = create_pushbutton("Save", tooltip="Save palette data",
-            width=50, enabled=False, layout=toolbar)
-        self.btn_pal_remove = create_pushbutton("Remove", tooltip="Remove the selected palette entry",
-            width=50, enabled=False, layout=toolbar)
+        # File actions remain disabled placeholders
+        toolbar.addWidget(self.btn_pal_add)
+        toolbar.addWidget(self.btn_pal_load)
+        toolbar.addWidget(self.btn_pal_save)
+        toolbar.addWidget(self.btn_pal_remove)
 
         layout.addLayout(toolbar)
 
         # Table: initially zero rows, two columns
-        self.pal_file_table = QtW.QTableWidget(0, 2)
         table = self.pal_file_table
 
         table.setHorizontalHeaderLabels(["File", "Lines"])
@@ -345,8 +428,6 @@ class SpriteEditor(QtW.QWidget):
         editing_layout.addWidget(self.ui_build_palette_preview())
 
         # Editing tabs
-        self.editing_tabs = QtW.QTabWidget()
-
         # Art: existing VRAM viewer and preview palette selector
         self.editing_tabs.addTab(self.ui_build_art_viewer(), "Art")
 
@@ -389,36 +470,26 @@ class SpriteEditor(QtW.QWidget):
         return spr_palette_group
 
     def ui_build_art_viewer(self):
-        self.vram_box = QtW.QGroupBox()
         art_viewer_layout = QtW.QVBoxLayout(self.vram_box)
 
         # Active Palette Line Selector for the Viewer
         viewer_controls = QtW.QHBoxLayout()
         viewer_controls.addWidget(QtW.QLabel("Preview Palette Line:"))
-
-        items = ["Line 0", "Line 1", "Line 2", "Line 3"]
-        self.viewer_line_combo = create_combobox(
-            tooltip="Choose a palette line to view art tiles with",
-            items=items, layout=viewer_controls)
+        viewer_controls.addWidget(self.viewer_line_combo)
         viewer_controls.addStretch()
         art_viewer_layout.addLayout(viewer_controls)
 
         # Scrollable Canvas
-        self.vram_label = QtW.QLabel("Art tile preview")
         self.vram_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.vram_scroll = create_scrollarea(self.vram_label, layout=art_viewer_layout)
+        art_viewer_layout.addWidget(self.vram_scroll)
         self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignRight)
 
+        # Tileset modifying buttons
         tile_controls = QtW.QHBoxLayout()
 
-        self.arrange_tiles = create_pushbutton("Arrange Tiles",
-            width=90, tooltip="Arrange tiles by sprite usage",
-            enabled=False, layout=tile_controls)
-
-        self.strip_tiles = create_pushbutton("Strip Unused Tiles",
-            width=110, tooltip="Remove all unused tiles",
-            enabled=False, layout=tile_controls)
+        tile_controls.addWidget(self.arrange_tiles)
+        tile_controls.addWidget(self.strip_tiles)
 
         tile_controls.addStretch()
         art_viewer_layout.addLayout(tile_controls)
@@ -426,8 +497,7 @@ class SpriteEditor(QtW.QWidget):
         return self.vram_box
 
     def ui_build_sprite_viewer(self):
-        self.sprite_frame_list = QtW.QListWidget()
-
+        # List of frame thumbnails
         frame_list = self.sprite_frame_list
 
         frame_list.setViewMode(QtW.QListView.ViewMode.IconMode)
@@ -455,20 +525,18 @@ class SpriteEditor(QtW.QWidget):
         return frame_list
 
     def ui_build_map_editor(self):
-        self.map_edit_box = QtW.QGroupBox()
         map_editor = QtW.QVBoxLayout(self.map_edit_box)
 
         frame_controls = QtW.QHBoxLayout()
 
         # Frame selector
         frame_controls.addWidget(QtW.QLabel("Frame Index:"))
-        self.frame_spinbox = create_spinbox(minimum=0, maximum=0,
-            layout=frame_controls)
+        frame_controls.addWidget(self.frame_spinbox)
 
         frame_controls.addStretch()
 
-        self.frame_name_input = create_lineedit(tooltip="Name of the mapping frame (in ASM files)",
-            layout=frame_controls)
+        # Frame name input
+        frame_controls.addWidget(self.frame_name_input)
         self.frame_name_input.setEnabled(False)
 
         frame_controls.addStretch()
@@ -477,17 +545,9 @@ class SpriteEditor(QtW.QWidget):
         frame_buttons = QtW.QHBoxLayout()
         frame_buttons.setSpacing(4)
 
-        self.btn_frame_add = create_pushbutton("Add Frame",
-            tooltip="Add a frame",
-            enabled=False, layout=frame_buttons)
-
-        self.btn_frame_remove = create_pushbutton("Remove Frame",
-            width=85, tooltip="Remove the current frame",
-            enabled=False, layout=frame_buttons)
-
-        self.btn_frame_copy = create_pushbutton("Copy Frame",
-            width=85, tooltip="Duplicate the current mapping frame",
-            enabled=False, layout=frame_buttons)
+        frame_buttons.addWidget(self.btn_frame_add)
+        frame_buttons.addWidget(self.btn_frame_remove)
+        frame_buttons.addWidget(self.btn_frame_copy)
 
         frame_buttons.addStretch()
         map_editor.addLayout(frame_buttons)
@@ -495,13 +555,8 @@ class SpriteEditor(QtW.QWidget):
         frame_tile_buttons = QtW.QHBoxLayout()
         frame_tile_buttons.setSpacing(4)
 
-        self.btn_frame_clone = create_pushbutton("Clone Frame and Tiles",
-            width=125, tooltip="Clone the current frame, and its tiles",
-            enabled=False, layout=frame_tile_buttons)
-
-        self.btn_frame_erase = create_pushbutton("Erase Frame and Tiles",
-            width=125, tooltip="Delete the current frame, and its tiles",
-            enabled=False, layout=frame_tile_buttons)
+        frame_tile_buttons.addWidget(self.btn_frame_clone)
+        frame_tile_buttons.addWidget(self.btn_frame_erase)
 
         frame_tile_buttons.addStretch()
         map_editor.addLayout(frame_tile_buttons)
@@ -515,15 +570,8 @@ class SpriteEditor(QtW.QWidget):
         piece_buttons = QtW.QHBoxLayout()
         piece_buttons.setSpacing(4)
 
-        self.btn_piece_add = create_pushbutton("Add Piece",
-            tooltip="Add a piece to the current frame",
-            enabled=False, layout=piece_buttons
-        )
-
-        self.btn_piece_remove = create_pushbutton("Remove Pieces",
-            width=85, tooltip="Remove the selected pieces",
-            enabled=False, layout=piece_buttons
-        )
+        piece_buttons.addWidget(self.btn_piece_add)
+        piece_buttons.addWidget(self.btn_piece_remove)
 
         piece_buttons.addStretch()
         map_editor.addLayout(piece_buttons)
@@ -531,7 +579,7 @@ class SpriteEditor(QtW.QWidget):
         map_editor.addSpacing(8)
 
         piece_controls = QtW.QVBoxLayout()
-        self.index_label = create_label("Piece Properties", object_name="infoLabel", layout=piece_controls)
+        piece_controls.addWidget(self.index_label)
         piece_controls.addLayout(self.ui_build_piece_controls())
         map_editor.addLayout(piece_controls)
 
@@ -540,7 +588,6 @@ class SpriteEditor(QtW.QWidget):
         return self.map_edit_box
 
     def ui_build_piece_list(self):
-        self.piece_list_table = QtW.QTableWidget(0, 1)
         table = self.piece_list_table
 
         table.setHorizontalHeaderLabels(["Piece List"])
@@ -564,46 +611,6 @@ class SpriteEditor(QtW.QWidget):
 
     def ui_build_piece_controls(self):
         piece_layout = QtW.QVBoxLayout()
-
-        # Position in pixels, relative to the sprite origin
-        self.piece_x_spinbox = create_spinbox(
-            minimum=-128, maximum=127,
-            width=45, keyboard_tracking=False,
-            tooltip="Horizontal position relative to the sprite origin")
-
-        self.piece_y_spinbox = create_spinbox(
-            minimum=-128, maximum=127,
-            width=45, keyboard_tracking=False,
-            tooltip="Vertical position relative to the sprite origin")
-
-        # Tile index stored in this piece's mapping
-        self.piece_tile_spinbox = create_spinbox(
-            minimum=0, maximum=2047,
-            display_base=16, prefix="$",
-            width=55, keyboard_tracking=False,
-            tooltip="Tile index before adding the sprite's base VRAM index")
-
-        # Dimensions of this piece, in tiles
-        self.piece_width_spinbox = create_spinbox(
-            minimum=1, maximum=4, value=1,
-            width=40, keyboard_tracking=False,
-            tooltip="Piece Width (tiles)")
-
-        self.piece_height_spinbox = create_spinbox(
-            minimum=1, maximum=4, value=1,
-            width=40, keyboard_tracking=False,
-            tooltip="Piece Height (tiles)")
-
-        # Palette value stored in this piece's mapping
-        self.piece_palette_spinbox = create_spinbox(
-            minimum=0, maximum=3,
-            width=40, keyboard_tracking=False,
-            tooltip="Palette line before adding the sprite's base palette line")
-
-        # Boolean properties
-        self.piece_x_flip_checkbox = QtW.QCheckBox("X-Flip")
-        self.piece_y_flip_checkbox = QtW.QCheckBox("Y-Flip")
-        self.piece_priority_checkbox = QtW.QCheckBox("Priority")
 
         # Row 1: Position
         position_row = QtW.QHBoxLayout()
@@ -646,21 +653,5 @@ class SpriteEditor(QtW.QWidget):
         piece_layout.addLayout(size_row)
         piece_layout.addLayout(tile_row)
         piece_layout.addLayout(flag_row)
-
-        # Group widgets by type
-        self.piece_spinboxes = {
-            "x": self.piece_x_spinbox,
-            "y": self.piece_y_spinbox,
-            "tile": self.piece_tile_spinbox,
-            "width": self.piece_width_spinbox,
-            "height": self.piece_height_spinbox,
-            "palette": self.piece_palette_spinbox,
-        }
-
-        self.piece_checkboxes = {
-            "priority": self.piece_priority_checkbox,
-            "x_flip": self.piece_x_flip_checkbox,
-            "y_flip": self.piece_y_flip_checkbox,
-        }
 
         return piece_layout
