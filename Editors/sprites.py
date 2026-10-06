@@ -48,6 +48,7 @@ class SpriteEditor(QtW.QWidget):
 
         # ui_build_frame_viewer()
         self.sprite_label = QtW.QLabel("Sprite preview")
+        self.btn_edit_group = QtW.QButtonGroup(self)
         self.btn_zoom_reset = create_pushbutton("1:1", tooltip="Reset preview zoom")
         self.btn_preview_center = create_pushbutton("Center", tooltip="Center the preview")
         self.origin_checkbox = create_checkbox("Origin", checked=True)
