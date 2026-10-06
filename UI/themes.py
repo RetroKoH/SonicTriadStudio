@@ -92,6 +92,21 @@ THEMES = {
         "bg_selected": "#545767",
         "separator": "#686C74",
     },
+    "Midnight": {
+        "highlight": "#8088F8",
+        "outline": "#C0C9F9",
+        "interior": "#07080D",
+        "text_main": "#8997A7",
+        "text_header": "#7B85BE",
+        "box_border": "#282934",
+        "background": "#07080D",
+        "fusion_base": "#0A0C15",
+        "fusion_button": "#161C37",
+
+        # Additional styling colors (add to all palettes)
+        "bg_selected": "#545767",
+        "separator": "#686C74",
+    },
 }
 
 # Reverse lookup themes dict
