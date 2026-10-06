@@ -264,7 +264,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_scroll.viewport().installEventFilter(self)
 
         # Palette Clipboard (Within a collapsible panel)
-        layout.addWidget(self.btn_clear_clipboard)
+        self.clipboard_group.header_layout.addWidget(self.btn_clear_clipboard)
 
         # Scrollable clipboard grid
         clipboard = QtW.QWidget()
