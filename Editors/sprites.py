@@ -8,12 +8,15 @@ tabs, splitters, the collapsible file panel and DPLC row visibility still work.
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QColor
 
-from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALEDIT_MAXCOLORS, QCOL_BLACK
+from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
 from AssetIO.palettes import decode_palette, encode_palette
 from AssetIO.mappings import *
 from UI.collapse_panel import CollapsiblePanel
+from UI.color_box import MiniColorBox
 from UI.file_toolbar import create_file_toolbar
+from UI.md_color import ColorLibrary
 from UI.widgets import (
     create_checkbox,
     create_combobox,
@@ -32,7 +35,23 @@ class SpriteEditor(QtW.QWidget):
     def __init__(self, project=None):
         super().__init__()
         self.project = project
+
+        # 64 color palette (4 palette lines) for sprite rendering
         self.palette_boxes = []
+        self.palette_colors = [QCOL_BLACK for _i in range(64)]
+
+        # These are used in the palette file manager
+        self.pal_rows = []  # Stores (path_input, line_combo) for palette loading
+        self.pal_line_combos = []
+
+        # File layout associated with the current palette buffer
+        # (None: buffer is not associated with any configured layout)
+        self.palette_buffer_layout = None
+
+        # Nonexistent destinations explicitly chosen through palette_entry_new()
+        self.palette_new_paths = set()
+
+        # Sprite viewer canvas
         self.sprite_canvas_width = 256
         self.sprite_canvas_height = 256
         self.sprite_zoom = 2
@@ -91,11 +110,14 @@ class SpriteEditor(QtW.QWidget):
         self.dplc_name_input = QtW.QLineEdit()
 
         # ui_build_palettes_tab()
-        self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes", width=50)
-        self.btn_pal_load = create_pushbutton("Load", tooltip="Load added palettes", width=50, enabled=False)
-        self.btn_pal_save = create_pushbutton("Save", tooltip="Save palette data", width=50, enabled=False)
+        self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes",
+            width=50, on_clicked=self.palette_entry_new)
+        self.btn_pal_load = create_pushbutton("Load", tooltip="Load added palettes",
+            width=50, on_clicked=self.palette_entry_load, enabled=False)
+        self.btn_pal_save = create_pushbutton("Save", tooltip="Save palette data",
+            width=50, on_clicked=self.palette_entry_save, enabled=False)
         self.btn_pal_remove = create_pushbutton("Remove", tooltip="Remove the selected palette entry",
-            width=50, enabled=False)
+            width=50, on_clicked=lambda: self.palette_remove_entry(), enabled=False)
         self.pal_file_table = QtW.QTableWidget(0, 2)
 
         # ui_build_editing_panel()
@@ -499,11 +521,8 @@ class SpriteEditor(QtW.QWidget):
         for _i in range(64):
             row = _i // 16
             col = _i % 16
-            # No palette-editor dependency or click handler
-            box = QtW.QFrame()
-            box.setFixedSize(16, 16)
-            box.setStyleSheet("background-color: black; border: 1px solid #444;")
-            box.setToolTip(f"Palette line {row}, color {col}")
+            box = MiniColorBox(_i)
+            box.clicked.connect(lambda _idx = _i: self.palette_open_color_library(_idx))
             pal_grid_layout.addWidget(box, row, col)
             self.palette_boxes.append(box)
 
@@ -699,3 +718,400 @@ class SpriteEditor(QtW.QWidget):
         piece_layout.addLayout(flag_row)
 
         return piece_layout
+
+    # --------------------------------------------------
+    # Palette File Entries
+    # --------------------------------------------------
+    def palette_entry_new(self):
+        """
+        Add a palette file to the sprite build.
+        """
+        # Access project directory
+        project_dir = self.project.root_dir
+        start_dir = str(project_dir) if project_dir else ""
+
+        # # Save dialog for new palette file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self,
+            "New Palette File", start_dir, "Palette Files (*.pal *.bin);;All Files (*)")
+
+        # If successful, create a new row under the palette tab
+        if file_path:
+            path = self.project.resolve_asset_path(file_path)
+            previous_count = len(self.pal_rows)
+
+            self.palette_add_entry(str(path))
+
+            if len(self.pal_rows) > previous_count and not path.exists():
+                self.palette_new_paths.add(path)
+
+    def palette_prepare_load(self):
+        """
+        Read configured palettes for eventual loading.
+
+        Returns:
+            (loaded colors, layout, new_paths) on success.
+            None otherwise.
+        """
+        try:
+            layout = self.palette_get_file_layout()     # (path, line count)
+            loaded_colors = [QCOL_BLACK for _ in range(PALETTE_MAXCOLORS)] # Temp buffer of 64 colors
+            new_paths = self.palette_new_paths.copy()
+            current_index = 0   # Index to load the next color into
+
+            for path, num_lines in layout:
+                # Number of colors to load based on number of lines in the entry
+                num_colors = num_lines * PALLINE_COLORS
+
+                if path is not None:
+                    try:
+                        with open(path, "rb") as f:
+                            data = f.read(num_colors * 2)   # each color is 2 bytes
+
+                    except FileNotFoundError:
+                        # New, unsaved palettes remain black
+                        if path not in new_paths:
+                            raise
+
+                    else:
+                        # Reject files shorter than their configured line count
+                        if len(data) != num_colors * 2:
+                            raise ValueError(f"{path.name}: expected {num_colors * 2} bytes, but read {len(data)}.")
+
+                        loaded_colors[current_index:current_index + num_colors] = decode_palette(data)
+
+                        # For file association management
+                        new_paths.discard(path)
+
+                # Blank paths still reserve their palette lines
+                current_index += num_colors
+
+        except (OSError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Palette Load Error", str(e))
+            return None
+
+        return loaded_colors, layout, new_paths
+
+    def palette_entry_load(self, *, prepared=None, refresh=True):
+        """
+        Apply loaded palette data, preparing it first unless supplied.
+
+        Returns:
+            True if successful, False if preparation fails.
+        """
+        # If not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.palette_prepare_load()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        # Install colors and their file associations together
+        loaded_colors, layout, new_paths = prepared
+        self.palette_colors = loaded_colors
+        self.palette_buffer_layout = layout
+        self.palette_new_paths = new_paths
+
+        # Set color boxes to loaded colors
+        for box, color in zip(self.palette_boxes, self.palette_colors):
+            box.set_color(color)
+
+        # Sprite build loading can defer rendering
+        if refresh:
+            print("Refreshing...")
+        #    self.render_art_tiles()     # Refresh VRAM
+        #    self.sprite_refresh_previews() # Refresh canvas AND thumbnails
+
+        return True
+
+    def palette_prepare_save(self):
+        """
+        Validate palette assignments and prepare file contents for saving.
+        (Much of this code was pulled from palette_entry_save).
+
+        Returns:
+            (save_jobs, layout) when ready to save.
+            () if no palette files are configured.
+            None if preparation fails or is canceled.
+        """
+        try:
+            layout = self.palette_get_file_layout()
+
+            # No configured destinations
+            if not any(path is not None for path, _ in layout):
+                return ()
+
+            # Require palette data loaded or initialized for this build
+            if self.palette_buffer_layout is None:
+                raise ValueError("Load or initialize palette data for this build before saving.")
+
+            # Map each file to its starting grid line and line count
+            previous_ranges = {}
+            start_line = 0
+
+            for path, num_lines in self.palette_buffer_layout:
+                if path is not None:
+                    previous_ranges[path] = (start_line, num_lines)
+
+                # Blank entries still occupy grid lines
+                start_line += num_lines
+
+            save_jobs = []
+            overwrite_paths = []
+            start_line = 0
+
+            for path, num_lines in layout:
+                if path is not None:
+                    if path.is_dir():
+                        raise IsADirectoryError(f"Save destination is a directory: {path}")
+
+                    # Identify changed destinations or assigned lines
+                    if previous_ranges.get(path) != (start_line, num_lines):
+                        overwrite_paths.append(path)
+
+                    first_color = start_line * 16
+                    num_colors = num_lines * 16
+
+                    # Encode the colors assigned to this file
+                    binary_data = encode_palette(self.palette_colors[first_color:first_color + num_colors])
+                    save_jobs.append((path, binary_data))
+
+                # Blank rows still reserve their grid lines
+                start_line += num_lines
+
+            # Confirm changed assignments before returning prepared data
+            #if not self.file_confirm_overwrites(overwrite_paths):
+                #return None
+
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "Palette Save Error",
+                f"Could not prepare palette files:\n{e}")
+            return None
+
+        return save_jobs, layout
+
+    def palette_entry_save(self, *, prepared=None):
+        """
+        Save palettes, preparing them first unless a result is supplied.
+
+        Returns:
+            True if all files saved or no files are configured.
+            False on failure or cancellation.
+            Earlier files may have saved if a later write fails.
+        """
+        # If not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.palette_prepare_save()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        # No palette file is configured
+        if not prepared:
+            return True
+
+        save_jobs, layout = prepared
+
+        # Write only after every entry has been prepared
+        for path, binary_data in save_jobs:
+            try:
+                # Write the prepared file
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "wb") as f:
+                    f.write(binary_data)
+
+            except (OSError, ValueError) as e:
+                QtW.QMessageBox.warning(self,"Palette Save Error",
+                    f"Could not save palette file {path.name}:\n{str(e)}")
+                return False
+
+            self.palette_new_paths.discard(path)
+
+        # Adopt the layout only after all saves succeed
+        self.palette_buffer_layout = layout
+        return True
+
+    def palette_add_entry(self, file_path):
+        """
+        Add a palette entry to the file manager.
+        """
+        # Each new file needs at least one available palette line.
+        total_lines = sum(int(combo.currentText() or "1") for combo in self.pal_line_combos)
+        if total_lines >= 4:
+            return
+
+        # Filepath text box
+        path_input = QtW.QLineEdit(file_path)
+
+        # Line count dropdown (1-4)
+        line_combo = QtW.QComboBox()
+        line_combo.addItem("1")    # Prime it with 1 for palette_update_file_controls
+        line_combo.setToolTip("Number of palette lines used by this file")
+        line_combo.currentIndexChanged.connect(self.palette_update_file_controls)
+
+        # Track the combo boxes in a list for evaluation
+        self.pal_line_combos.append(line_combo)
+        self.pal_rows.append((path_input, line_combo))
+
+        # Add the widgets to the table
+        row = self.pal_file_table.rowCount()
+        self.pal_file_table.insertRow(row)
+
+        self.pal_file_table.setCellWidget(row, 0, path_input)
+        self.pal_file_table.setCellWidget(row, 1, line_combo)
+
+        self.pal_file_table.selectRow(row)
+
+        # Seems redundant, but we need an initial evaluation
+        self.palette_update_file_controls()
+
+    def palette_remove_entry(self, row=None):
+        """
+        Removes a palette entry from the file manager.
+        """
+        if row is None:
+            row = self.pal_file_table.currentRow()
+
+        if not 0 <= row < len(self.pal_rows):
+            return
+
+        # Remove references before the table deletes the widgets
+        path_input, line_combo = self.pal_rows.pop(row)
+        self.pal_line_combos.remove(line_combo)
+
+        self.pal_file_table.removeRow(row)
+
+        if self.pal_rows:
+            self.pal_file_table.selectRow(min(row, len(self.pal_rows) - 1))
+
+        self.palette_update_file_controls()
+
+    def palette_move_entry(self, logical_index, old_position, new_position):
+        """
+        Move a palette entry in the file manager to another line.
+        """
+        if old_position == new_position:
+            return
+
+        # Collect filepaths and line counts
+        entries = [
+            (path_input.text(), int(line_combo.currentText() or "1"))
+            for path_input, line_combo in self.pal_rows
+        ]
+
+        # Reorder file assignments
+        entry = entries.pop(old_position)
+        entries.insert(new_position, entry)
+
+        # Restore header order; apply the move to the cell values instead
+        header = self.pal_file_table.verticalHeader()
+        previous_state = header.blockSignals(True)
+        header.moveSection(new_position, old_position)
+        header.blockSignals(previous_state)
+
+        # Update the existing widgets
+        for widgets, entry in zip(self.pal_rows, entries):
+            path_input, line_combo = widgets
+            file_path, line_count = entry
+
+            path_input.setText(file_path)
+
+            previous_state = line_combo.blockSignals(True)
+            line_combo.clear()
+            line_combo.addItems(["1", "2", "3", "4"])
+            line_combo.setCurrentText(str(line_count))
+            line_combo.blockSignals(previous_state)
+
+        self.pal_file_table.selectRow(new_position)
+        self.palette_update_file_controls()
+
+    def palette_update_file_controls(self):
+        """
+        Enable/Disable controls based on file manager state.
+        """
+        # Sum the values of all active line combo boxes
+        total_lines = sum(int(combo.currentText() or "1") for combo in self.pal_line_combos)
+
+        # Enable/Disable buttons accordingly
+        count = len(self.pal_rows)
+        selected_row = self.pal_file_table.currentRow()
+
+        self.btn_pal_add.setEnabled(total_lines < 4)
+        self.btn_pal_load.setEnabled(count > 0)
+        self.btn_pal_save.setEnabled(count > 0)
+        self.btn_pal_remove.setEnabled(0 <= selected_row < count)
+
+        # Dynamically restrict each dropdown so the user can't select a value that exceeds 4
+        for combo in self.pal_line_combos:
+            current_val = int(combo.currentText() or "1")
+            # Max allowed for this specific combo is 4 minus the lines taken up
+            max_allowed = 4 - (total_lines - current_val)
+
+            # Rebuild dropdown options
+            combo.blockSignals(True)
+            combo.clear()
+
+            for _i in range(1, max_allowed + 1):
+                combo.addItem(str(_i))
+
+            combo.setCurrentText(str(current_val))
+            combo.blockSignals(False)
+
+    def palette_open_color_library(self, col_idx):
+        # Get active color from the clicked box
+        active_color = self.palette_colors[col_idx]
+
+        # Run color picker window
+        dialog = ColorLibrary(active_color, self)
+        if dialog.exec():
+            # Apply picked color to active index
+            new_color = dialog.get_color()
+            self.palette_colors[col_idx] = new_color
+
+            # Update color box
+            self.palette_boxes[col_idx].set_color(new_color)
+            # Refresh VRAM after loading new palette
+            #self.render_art_tiles()
+            # Refresh frame window and thumbnails
+            #self.sprite_refresh_previews()
+
+    def palette_get_file_layout(self):
+        """
+        Get the configured palette layout in table order.
+
+        Returns:
+            Tuple: (absolute Path or None, line count) for each entry.
+            (Note: Blank paths reserve their configured palette lines.)
+        """
+        layout = []
+        seen_paths = set()
+        total_lines = 0
+
+        # Validate line allocation
+        for path_input, line_combo in self.pal_rows:
+            num_lines = int(line_combo.currentText() or "1")
+            total_lines += num_lines
+
+            if not 1 <= num_lines <= 4 or total_lines > 4:
+                raise ValueError("Palette entries must fit within four lines.")
+
+            # Blank paths remain unassigned
+            path_text = path_input.text().strip()
+            path = None
+
+            if path_text:
+                # Resolve relative paths against the project root
+                path = self.project.resolve_asset_path(path_text)
+
+                # Prevents writing to the same palette file twice from separate entries
+                if path in seen_paths:
+                    raise ValueError(f"Palette file listed more than once: {path}")
+
+                seen_paths.add(path)
+
+            # Preserve row order and reserved lines
+            layout.append((path, num_lines))
+
+        # Includes blank entries as they reserve palette lines
+        return tuple(layout)

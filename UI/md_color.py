@@ -36,6 +36,15 @@ class ColorLibrary(QtW.QDialog):
         self.cram_label = None
         self.hex_label = None
 
+        # Color theme aspects
+        app = QtW.QApplication.instance()
+        theme = getattr(app, "active_theme", None)
+
+        if not isinstance(theme, dict):
+            theme = THEMES.get("Dark", {})
+
+        self.border_color = theme.get("box_border", "#444444")
+
         self.ui_init()
         self.update_preview()
 
@@ -106,13 +115,11 @@ class ColorLibrary(QtW.QDialog):
             column.addWidget(preview)
             previews.addLayout(column)
 
-        # There has to be a more efficient way to do this
-        app = QtW.QApplication.instance()
-        theme = getattr(app, "active_theme", THEMES["dark"])
-        self.setStyleSheet(f"""
+        # Set color and border
+        self.current_preview.setStyleSheet(f"""
             QFrame {{
                 background-color: {self.current_color.name()};
-                border: 1px solid {theme.get("box_border", "#444444")};                
+                border: 1px solid {self.border_color};                
             }}
         """)
 
@@ -182,7 +189,14 @@ class ColorLibrary(QtW.QDialog):
         for channel, group in self.channel_groups.items():
             group.button(getattr(self, f"{channel}_step")).setChecked(True)
 
-        self.preview_box.setStyleSheet(f"background-color: {self.selected_color.name()}; border: 1px solid #666;")
+        # Set color and border
+        self.preview_box.setStyleSheet(f"""
+            QFrame {{
+                background-color: {self.selected_color.name()};
+                border: 1px solid {self.border_color};                
+            }}
+        """)
+
         # Same 0BGR packing used by the palette writer (three bits per channel).
         cram_word = (self.b_step << 9) | (self.g_step << 5) | (self.r_step << 1)
         self.cram_label.setText(f"${cram_word:04X}")

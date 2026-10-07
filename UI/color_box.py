@@ -273,7 +273,7 @@ class PreviewColorBox(QtW.QFrame):
 class MiniColorBox(QtW.QFrame):
     clicked = pyqtSignal()
 
-    def __init__(self, index, color=QColor(0, 0, 0), size=18):
+    def __init__(self, index, color=QCOL_BLACK, size=18):
         super().__init__()
         self.index = index
         self.color = color
