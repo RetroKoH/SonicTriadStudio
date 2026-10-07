@@ -6,11 +6,14 @@ mapping edits are not wired. Editing controls are disabled placeholders;
 tabs, splitters, the collapsible file panel and DPLC row visibility still work.
 """
 
+from pathlib import Path
+
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QImage, QPixmap
 
 from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
+from AssetIO.art import decode_art, encode_art
 from AssetIO.palettes import decode_palette, encode_palette
 from AssetIO.mappings import *
 from UI.collapse_panel import CollapsiblePanel
@@ -51,6 +54,20 @@ class SpriteEditor(QtW.QWidget):
         # Nonexistent destinations explicitly chosen through palette_entry_new()
         self.palette_new_paths = set()
 
+        # VRAM art tile structure (Dynamic art_tile structures are loaded into this structure)
+        # Individual art tile structures (Create dynamically for each row in self.art_rows)
+        # That is done in art_add_entry
+        self.vram_tiles = {}
+
+        # Tells the sprite map list when sprite data changes
+        self.art_preview_revision = 0
+
+        # Used in the art file manager
+        self.art_rows = []  # Stores row items in the table for art loading
+
+        # Loaded file associated with each art row's path widget
+        self.art_buffer_paths = {}
+
         # Sprite viewer canvas
         self.sprite_canvas_width = 256
         self.sprite_canvas_height = 256
@@ -88,11 +105,14 @@ class SpriteEditor(QtW.QWidget):
         self.filemanager_tabs = QtW.QTabWidget()
 
         # ui_build_art_tab()
-        self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles", width=50)
-        self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles", width=50, enabled=False)
-        self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data", width=50, enabled=False)
+        self.btn_art_add = create_pushbutton("Add", tooltip="Add art tiles",
+            width=50, on_clicked=self.art_entry_new)
+        self.btn_art_load = create_pushbutton("Load", tooltip="Load added art tiles",
+            width=50, on_clicked=self.art_entry_load, enabled=False)
+        self.btn_art_save = create_pushbutton("Save", tooltip="Save art tile data",
+            width=50, on_clicked=self.art_entry_save, enabled=False)
         self.btn_art_remove = create_pushbutton("Remove", tooltip="Remove the selected art tile entry",
-            width=50, enabled=False)
+            width=50, on_clicked=lambda: self.art_remove_entry(), enabled=False)
         self.art_file_table = QtW.QTableWidget(0, 4)
 
         # ui_build_mappings_tab()
@@ -128,7 +148,7 @@ class SpriteEditor(QtW.QWidget):
         self.viewer_line_combo = create_combobox(
             tooltip="Choose a palette line to view art tiles with",
             items=["Line 0", "Line 1", "Line 2", "Line 3"])
-        self.vram_label = QtW.QLabel("Art tile preview")
+        self.vram_label = QtW.QLabel()
         self.vram_scroll = create_scrollarea(self.vram_label)
         self.arrange_tiles = create_pushbutton("Arrange Tiles",
             width=90, tooltip="Arrange tiles by sprite usage", enabled=False)
@@ -408,7 +428,7 @@ class SpriteEditor(QtW.QWidget):
         # Fixed, non-editable type labels for column 0
         for row, name in enumerate(("Mappings", "DPLC")):
             item = QtW.QTableWidgetItem(name)
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled or Qt.ItemFlag.ItemIsSelectable)
             table.setItem(row, 0, item)
 
         # Row 0: Mapping file
@@ -543,7 +563,7 @@ class SpriteEditor(QtW.QWidget):
         art_viewer_layout.addLayout(viewer_controls)
 
         # Scrollable Canvas
-        self.vram_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vram_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         art_viewer_layout.addWidget(self.vram_scroll)
         self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -719,6 +739,379 @@ class SpriteEditor(QtW.QWidget):
 
         return piece_layout
 
+
+    # --------------------------------------------------
+    # File Operations
+    # --------------------------------------------------
+    def file_confirm_overwrites(self, paths):
+        """
+        Confirm replacement of existing files at changed save assignments.
+
+        Returns:
+            True if confirmation is unnecessary or accepted.
+            False if canceled or a destination is invalid.
+        """
+        try:
+            existing_paths = []
+
+            for path in dict.fromkeys(paths):
+                if path.is_dir():
+                    raise IsADirectoryError(f"Save destination is a directory: {path}")
+
+                if path.exists():
+                    existing_paths.append(path)
+
+        except OSError as e:
+            QtW.QMessageBox.warning(self, "Save Error", str(e))
+            return False
+
+        if not existing_paths:
+            return True
+
+        file_list = "\n".join(str(path) for path in existing_paths)
+
+        answer = QtW.QMessageBox.question(self, "Overwrite Files",
+            f"These files already exist:\n\n{file_list}\n\n"
+            "Overwrite them with the current editor data?",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.No,
+        )
+
+        return answer == QtW.QMessageBox.StandardButton.Yes
+
+
+    # --------------------------------------------------
+    # Art File Entries
+    # --------------------------------------------------
+    def art_entry_new(self):
+        """
+        Add an art file to the sprite build.
+        """
+        # Access project directory
+        project_dir = self.project.root_dir
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Filetype filter (To-Do: Move this to a global file and have each load instance pick and choose)
+        art_file_filter = (
+            "Uncompressed Art (*.bin *.unc);;"
+            "Nemesis Art (*.nem *.unc);;"
+            "Kosinski Art (*.kos *.unc);;"
+            "Moduled Kosinski Art (*.kosm *.unc);;"
+            "All Files (*)"
+        )
+
+        # Open dialog for new art file
+        file_path, _ = QtW.QFileDialog.getOpenFileName(self, "Add Art File", start_dir, art_file_filter)
+
+        # If successful, create a new row under the art tab
+        if file_path:
+            self.art_add_entry(file_path)
+
+    def art_entry_load(self, *, prepared=None, refresh=True):
+        """
+        Apply art data, preparing it first unless supplied.
+
+        Returns:
+            True if successful, False if preparation fails.
+        """
+        # Prepare when called directly
+        if prepared is None:
+            prepared = self.art_prepare_load()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        load_jobs, loaded_paths = prepared
+
+        # Preserve each row's buffer reference
+        for art_tiles, loaded_tiles in load_jobs:
+            art_tiles[:] = loaded_tiles
+
+        # Set path associations and refresh VRAM
+        self.art_buffer_paths = loaded_paths
+        self.art_refresh_vram(refresh=refresh)
+
+        return True
+
+    def art_entry_save(self, *, prepared=None):
+        """
+        Save art, preparing it first unless a result is supplied.
+
+        Returns:
+            True if all files saved or no files are configured.
+            False on failure or cancellation.
+            Earlier files may have saved if a later write fails.
+        """
+        # If not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.art_prepare_save()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        # No art files are configured
+        if not prepared:
+            return True
+
+        save_jobs, saved_paths = prepared
+
+        # Write only after every entry has been prepared
+        for path, art_data in save_jobs:
+            try:
+                # Create directory structure if saving to a new path
+                path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(path, "wb") as f:
+                    f.write(art_data)
+
+            except Exception as e:
+                QtW.QMessageBox.warning(self, "Art Save Error",
+                    f"Could not save art file {path.name}:\n{str(e)}")
+                return False
+
+        # Adopt destinations only after all saves succeed
+        self.art_buffer_paths.update(saved_paths)
+        return True
+
+    def art_prepare_load(self):
+        """
+        Read and decompress art for eventual loading.
+
+        Returns:
+            (load_jobs, loaded_paths) on success.
+            None if preparation fails.
+            Blank entries receive empty buffers when applied.
+        """
+        load_jobs = []
+        loaded_paths = {}
+        seen_paths = set()
+
+        # Loop for each filepath added
+        for path_input, comp_combo, _, _, art_tiles in self.art_rows:
+            file_path_str = path_input.text().strip()
+
+            # Clear for unassigned entries
+            if not file_path_str:
+                load_jobs.append((art_tiles, []))
+                continue
+
+            path = Path(file_path_str)
+
+            try:
+                path = self.project.resolve_asset_path(path)
+
+                # Reject duplicate file assignments
+                if path in seen_paths:
+                    raise ValueError("Art file is listed more than once.")
+
+                seen_paths.add(path)
+
+                with open(path, "rb") as f:
+                    raw_data = f.read()
+
+                # Unpack tiles and load into buffer storage
+                loaded_tiles = decode_art(raw_data, comp_combo.currentText())
+
+                # Queue buffer to be loaded
+                load_jobs.append((art_tiles, loaded_tiles))
+                loaded_paths[path_input] = path
+
+            except Exception as e:
+                QtW.QMessageBox.warning(self, "Art Load Error",
+                    f"Could not load art file {path.name}:\n{str(e)}")
+                return None
+
+        return load_jobs, loaded_paths
+
+    def art_prepare_save(self):
+        """
+        Validate art entries and prepare their encoded file contents.
+        (Much of this code was pulled from art_entry_save).
+
+        Returns:
+            (save_jobs, saved_paths) when ready to save.
+            () if no art files are configured.
+            None if preparation fails or is canceled.
+        """
+        save_jobs = []
+        seen_paths = set()
+        overwrite_paths = []
+        saved_paths = {}
+
+        for path_input, comp_combo, _, _, art_tiles in self.art_rows:
+            file_path_str = path_input.text().strip()
+            if not file_path_str:
+                continue
+
+            path = Path(file_path_str)
+
+            try:
+                # Resolve the destination
+                path = self.project.resolve_asset_path(path)
+
+                if path.is_dir():
+                    raise IsADirectoryError(f"Save destination is a directory: {path}")
+
+                # Reject duplicate destinations
+                if path in seen_paths:
+                    raise ValueError("Art file is listed more than once.")
+                seen_paths.add(path)
+
+                # Require a loaded buffer for this row
+                source_path = self.art_buffer_paths.get(path_input)
+
+                if source_path is None:
+                    raise ValueError("Load art for this entry before saving.")
+
+                # Require a populated source buffer
+                if not art_tiles:
+                    raise ValueError("No art tiles are loaded for this entry.")
+
+                # Changed destinations may require overwrite confirmation
+                if source_path != path:
+                    overwrite_paths.append(path)
+
+                # Pack art tiles into binary data (Compressed, if necessary)
+                art_data = encode_art(art_tiles, comp_combo.currentText())
+
+                # Queue prepared file and record its proposed path
+                save_jobs.append((path, bytes(art_data)))
+                saved_paths[path_input] = path
+
+            # Handle unexpected errors (validation, packing, compression)
+            except Exception as e:
+                QtW.QMessageBox.warning(self, "Art Save Error",
+                    f"Could not prepare art file {path.name}:\n{e}")
+                return None
+
+        if not save_jobs:
+            return ()
+
+        if not self.file_confirm_overwrites(overwrite_paths):
+            return None
+
+        return save_jobs, saved_paths
+
+    def art_add_entry(self, file_path):
+        """
+        Add an art entry to the file manager.
+        """
+        # Cap sprite build at 3 art files
+        if len(self.art_rows) >= 3:
+            return
+
+        # Filepath text box
+        path_input = QtW.QLineEdit(file_path)
+
+        # Compression Dropdown
+        comp_combo = QtW.QComboBox()
+        comp_combo.addItems(["Uncompressed", "Nemesis", "Kosinski", "Kosinski-M"])
+
+        # Set compression dropdown based on file extension (if not .bin)
+        compression_by_extension = {
+            ".nem": "Nemesis",
+            ".kos": "Kosinski",
+            ".kosm": "Kosinski-M",
+        }
+        extension = Path(file_path).suffix.lower()
+        comp_combo.setCurrentText(compression_by_extension.get(extension, "Uncompressed"))
+
+        artloc_spin = QtW.QSpinBox()
+        artloc_spin.setRange(0, 2047)  # Cap at 2048 tiles (I'll worry about specifics later)
+        artloc_spin.setDisplayIntegerBase(16)  # Display in hex
+        artloc_spin.setPrefix("$")
+
+        count_spin = QtW.QSpinBox()
+        count_spin.setRange(0, 2048)  # Cap at 2048 tiles (Max possible in VRAM)
+        count_spin.setSpecialValueText("All")
+        count_spin.setToolTip("Number of source tiles to load into VRAM.\n"
+            "0 to load all tiles that fit.")
+
+        # Each entry has its own art_tile structure
+        art_tiles = []
+
+        # Store elements
+        row_data = (path_input, comp_combo, artloc_spin, count_spin, art_tiles)
+        self.art_rows.append(row_data)
+
+        # Add and assemble a table row
+        row = self.art_file_table.rowCount()
+        self.art_file_table.insertRow(row)
+
+        self.art_file_table.setCellWidget(row, 0, path_input)
+        self.art_file_table.setCellWidget(row, 1, comp_combo)
+        self.art_file_table.setCellWidget(row, 2, artloc_spin)
+        self.art_file_table.setCellWidget(row, 3, count_spin)
+
+        self.art_file_table.selectRow(row)
+
+        # Initial evaluation
+        self.art_update_file_controls()
+
+        artloc_spin.valueChanged.connect(self.art_refresh_vram)
+        count_spin.valueChanged.connect(self.art_refresh_vram)
+
+    def art_remove_entry(self, row=None):
+        if row is None:
+            row = self.art_file_table.currentRow()
+
+        if not 0 <= row < len(self.art_rows):
+            return
+
+        # Remove the row and its file association
+        path_input, _, _, _, _ = self.art_rows.pop(row)
+        self.art_buffer_paths.pop(path_input, None)
+        self.art_file_table.removeRow(row)
+
+        if self.art_rows:
+            self.art_file_table.selectRow(min(row, len(self.art_rows) - 1))
+
+        self.art_update_file_controls()
+        self.art_refresh_vram()
+
+    def art_update_file_controls(self):
+        """
+        Enable/Disable controls based on file manager state.
+        """
+        count = len(self.art_rows)
+        selected_row = self.art_file_table.currentRow()
+
+        # Enable/Disable buttons based on number of art files
+        self.btn_art_add.setEnabled(count < 3)
+        self.btn_art_load.setEnabled(count > 0)
+        self.btn_art_save.setEnabled(count > 0)
+        self.btn_art_remove.setEnabled(0 <= selected_row < count)
+
+    def art_refresh_vram(self, *, refresh=True):
+        """
+        Load each file's source tiles into VRAM
+        """
+        self.vram_tiles.clear()
+
+        for _, _, offset_spin, count_spin, art_tiles in self.art_rows:
+            start = offset_spin.value()
+            requested_count = count_spin.value()
+
+            # If count == 0, load all tiles that will fit into VRAM
+            if requested_count == 0:
+                requested_count = len(art_tiles)
+
+            preview_count = min(requested_count, len(art_tiles), 2048 - start)
+
+            # Copy from source to VRAM
+            for source_index in range(preview_count):
+                self.vram_tiles[start + source_index] = (art_tiles[source_index].copy())
+
+        # Invalidate cached previews after rebuilding VRAM
+        self.art_preview_revision += 1
+
+        # Whole-build loading can defer refreshing
+        if refresh:
+            self.render_art_tiles()
+            #self.sprite_refresh_previews()  # Refresh canvas AND thumbnails
+
     # --------------------------------------------------
     # Palette File Entries
     # --------------------------------------------------
@@ -808,6 +1201,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Install colors and their file associations together
         loaded_colors, layout, new_paths = prepared
+
         self.palette_colors = loaded_colors
         self.palette_buffer_layout = layout
         self.palette_new_paths = new_paths
@@ -818,8 +1212,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Sprite build loading can defer rendering
         if refresh:
-            print("Refreshing...")
-        #    self.render_art_tiles()     # Refresh VRAM
+            self.render_art_tiles()     # Refresh VRAM
         #    self.sprite_refresh_previews() # Refresh canvas AND thumbnails
 
         return True
@@ -880,8 +1273,8 @@ class SpriteEditor(QtW.QWidget):
                 start_line += num_lines
 
             # Confirm changed assignments before returning prepared data
-            #if not self.file_confirm_overwrites(overwrite_paths):
-                #return None
+            if not self.file_confirm_overwrites(overwrite_paths):
+                return None
 
         except Exception as e:
             QtW.QMessageBox.warning(self, "Palette Save Error",
@@ -1072,7 +1465,7 @@ class SpriteEditor(QtW.QWidget):
             # Update color box
             self.palette_boxes[col_idx].set_color(new_color)
             # Refresh VRAM after loading new palette
-            #self.render_art_tiles()
+            self.render_art_tiles()
             # Refresh frame window and thumbnails
             #self.sprite_refresh_previews()
 
@@ -1115,3 +1508,51 @@ class SpriteEditor(QtW.QWidget):
 
         # Includes blank entries as they reserve palette lines
         return tuple(layout)
+
+    # --------------------------------------------------
+    # Rendering
+    # --------------------------------------------------
+    def render_art_tiles(self):
+        """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
+        # Size: 16 x 128 tiles
+        vram_width_px = 16 * 8
+        vram_height_px = 128 * 8
+
+        # Transparent ARGB canvas
+        image = QImage(vram_width_px, vram_height_px, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+
+        # Calc palette offset based on the selected line (0, 16, 32, or 48)
+        line_offset = self.viewer_line_combo.currentIndex() * 16
+
+        # Loop through every tile (within each tile, loop through each pixel)
+        for tile_idx, pixel_indices in self.vram_tiles.items():
+            # Stop at the end of the VRAM space
+            if tile_idx >= 2048:
+                continue
+
+            # Calculate base coords for the top-left pixel of this 8x8 tile
+            tile_x = (tile_idx % 16) * 8
+            tile_y = (tile_idx // 16) * 8
+
+            for i, p_val in enumerate(pixel_indices):
+                # Index 0 is transparent (To-Do: Make displaying color 0 optional)
+                if p_val == 0:
+                    continue
+
+                # Pixel coordinates
+                px = tile_x + (i % 8)
+                py = tile_y + (i // 8)
+
+                # Fetch color from palette grid, using the line offset + pixel value
+                color_idx = line_offset + p_val
+                if color_idx < len(self.palette_colors):
+                    color = self.palette_colors[color_idx]
+                    image.setPixelColor(px, py, color)
+
+        # Scale up 2x
+        pixmap = QPixmap.fromImage(image)
+        scaled_pixmap = pixmap.scaled(vram_width_px * 2, vram_height_px * 2,
+            Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
+
+        self.vram_label.setPixmap(scaled_pixmap)

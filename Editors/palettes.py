@@ -1674,9 +1674,8 @@ class PaletteEditor(QtW.QWidget):
             return
 
         # Render copied swatches
-        MAX_COLUMNS = 16
         for idx, color in enumerate(self.clip_colors):
-            row, col = idx // MAX_COLUMNS, idx % MAX_COLUMNS
+            row, col = idx // PALLINE_COLORS, idx % PALLINE_COLORS
 
             box = QtW.QFrame()
             box.setFixedSize(28, 28)

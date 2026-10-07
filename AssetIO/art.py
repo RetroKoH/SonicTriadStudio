@@ -1,4 +1,4 @@
-# To-Do: import formats
+from Formats import nemesis
 
 def decode_art(data, compression="Uncompressed"):
     """
@@ -10,14 +10,10 @@ def decode_art(data, compression="Uncompressed"):
     if not raw_data:
         raise ValueError("Art file contains no tile data.")
 
-    """if compression == "Nemesis":
-        raw_data = decompress.nemesis(raw_data)
-    elif compression == "Kosinski":
-        raw_data = decompress.kosinski(raw_data)
-    elif compression == "Kosinski-M":
-        raw_data = decompress.kosinski_mod(raw_data)
+    if compression == "Nemesis":
+        raw_data = nemesis.decompress(raw_data)
     elif compression != "Uncompressed":
-        raise ValueError(f"Unsupported art compression format: {compression}")"""
+        raise ValueError(f"Unsupported art compression format: {compression}")
 
     if len(raw_data) % 32:
         raise ValueError(f"Art data contains {len(raw_data)} bytes; expected a multiple of 32.")
@@ -51,7 +47,7 @@ def encode_art(tiles, compression="Uncompressed"):
     if not art_data:
         raise ValueError("No art tiles are available to encode.")
 
-#    if compression == "Nemesis":
-#        art_data = compress.nemesis(art_data)
+    if compression == "Nemesis":
+        art_data = nemesis.compress(art_data)
 
     return bytes(art_data)
