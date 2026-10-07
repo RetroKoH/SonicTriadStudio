@@ -16,6 +16,7 @@ from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BL
 from AssetIO.art import decode_art, encode_art
 from AssetIO.palettes import decode_palette, encode_palette
 from AssetIO.mappings import *
+from Rendering.tiles import render_tile_grid
 from UI.collapse_panel import CollapsiblePanel
 from UI.color_box import MiniColorBox
 from UI.file_toolbar import create_file_toolbar
@@ -2125,46 +2126,16 @@ class SpriteEditor(QtW.QWidget):
     # Rendering
     # --------------------------------------------------
     def render_art_tiles(self):
-        """Renders the virtual VRAM contents into an image and refreshes the viewer canvas."""
-        # Size: 16 x 128 tiles
-        vram_width_px = 16 * 8
-        vram_height_px = 128 * 8
-
-        # Transparent ARGB canvas
-        image = QImage(vram_width_px, vram_height_px, QImage.Format.Format_ARGB32)
-        image.fill(Qt.GlobalColor.transparent)
-
-        # Calc palette offset based on the selected line (0, 16, 32, or 48)
-        line_offset = self.viewer_line_combo.currentIndex() * 16
-
-        # Loop through every tile (within each tile, loop through each pixel)
-        for tile_idx, pixel_indices in self.vram_tiles.items():
-            # Stop at the end of the VRAM space
-            if tile_idx >= 2048:
-                continue
-
-            # Calculate base coords for the top-left pixel of this 8x8 tile
-            tile_x = (tile_idx % 16) * 8
-            tile_y = (tile_idx // 16) * 8
-
-            for i, p_val in enumerate(pixel_indices):
-                # Index 0 is transparent (To-Do: Make displaying color 0 optional)
-                if p_val == 0:
-                    continue
-
-                # Pixel coordinates
-                px = tile_x + (i % 8)
-                py = tile_y + (i // 8)
-
-                # Fetch color from palette grid, using the line offset + pixel value
-                color_idx = line_offset + p_val
-                if color_idx < len(self.palette_colors):
-                    color = self.palette_colors[color_idx]
-                    image.setPixelColor(px, py, color)
+        """
+        Renders the virtual VRAM contents into an image and refreshes the viewer canvas.
+        """
+        # Render VRAM tile grid
+        image = render_tile_grid(self.vram_tiles, self.palette_colors,
+            palette_line=self.viewer_line_combo.currentIndex())
 
         # Scale up 2x
         pixmap = QPixmap.fromImage(image)
-        scaled_pixmap = pixmap.scaled(vram_width_px * 2, vram_height_px * 2,
+        scaled_pixmap = pixmap.scaled(image.width() * 2, image.height() * 2,
             Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
 
         self.vram_label.setPixmap(scaled_pixmap)
