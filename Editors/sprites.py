@@ -68,6 +68,19 @@ class SpriteEditor(QtW.QWidget):
         # Loaded file associated with each art row's path widget
         self.art_buffer_paths = {}
 
+        # File associated with the initialized mapping buffer
+        self.mapping_buffer_path = None
+
+        # Stores the parsed mapping data in memory (Not loading DPLCs right now)
+        self.map_frames = []
+
+        # Frame labels (I'll work this into map_frames later)
+        self.frame_labels = []
+
+        # Rendered piece images and the source state they represent
+        self.piece_image_cache = {}
+        self.piece_image_cache_state = None
+
         # Sprite viewer canvas
         self.sprite_canvas_width = 256
         self.sprite_canvas_height = 256
@@ -116,10 +129,14 @@ class SpriteEditor(QtW.QWidget):
         self.art_file_table = QtW.QTableWidget(0, 4)
 
         # ui_build_mappings_tab()
-        self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings", width=50)
-        self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings", width=50, enabled=False)
-        self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data", width=50, enabled=False)
-        self.btn_map_remove = create_pushbutton("Remove", tooltip="Remove mappings data", width=50, enabled=False)
+        self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings",
+            width=50, on_clicked=self.mapping_entry_new)
+        self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings",
+            width=50, on_clicked=self.mapping_entry_load, enabled=False)
+        self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data",
+            width=50, on_clicked=self.mapping_entry_save, enabled=False)
+        self.btn_map_remove = create_pushbutton("Remove", tooltip="Remove mappings data",
+            width=50, on_clicked=lambda: self.mapping_remove_entry(), enabled=False)
         self.map_dropdown = QtW.QComboBox()
         self.macro_cb = QtW.QCheckBox("Save with Macros")
         self.dplc_cb = QtW.QCheckBox("Use DPLCs")
@@ -456,11 +473,15 @@ class SpriteEditor(QtW.QWidget):
         table.setCellWidget(1, 1, dplc_file_widget)
         table.setCellWidget(1, 2, self.dplc_name_input)
 
+        # Update buttons when the filepath is typed or changed
+        self.map_path_input.textChanged.connect(self.mapping_update_file_controls)
+
         # Show the DPLC row only when enabled
         table.setRowHidden(1, True)
         self.dplc_cb.toggled.connect(lambda enabled: table.setRowHidden(1, not enabled))
 
         layout.addWidget(table, stretch=1)
+        self.mapping_update_file_controls()
 
         return tab
 
@@ -1113,6 +1134,278 @@ class SpriteEditor(QtW.QWidget):
             #self.sprite_refresh_previews()  # Refresh canvas AND thumbnails
 
     # --------------------------------------------------
+    # Mapping File Entries
+    # --------------------------------------------------
+    def mapping_entry_new(self):
+        if self.map_path_input.text().strip():
+            return
+
+        # Access project directory
+        project_dir = self.project.root_dir
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new mapping file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self, "New Mapping File",
+            start_dir, "Mapping Files (*.asm *.bin);;All Files (*)")
+
+        if not file_path:
+            return
+
+        path = self.project.resolve_asset_path(file_path)
+        initialize = self.mapping_buffer_path is None and not path.exists()
+
+        self.mapping_add_entry(str(path))
+
+        # Initialize a new document without creating its file
+        if initialize:
+            self.mapping_set_buffer(path, [], [],
+                self.map_name_input.text().strip(), self.macro_cb.isChecked())
+
+    def mapping_entry_load(self, *, prepared=None, refresh=True):
+        """
+        Apply mapping data, preparing it first unless supplied.
+
+        Returns:
+            True if successful, False if preparation fails.
+        """
+        # If not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.mapping_prepare_load()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        # Commit data and association together
+        self.mapping_set_buffer(*prepared, refresh=refresh)
+
+        # Report direct loads of configured files
+        path = prepared[0]
+        if refresh and path is not None:
+            QtW.QMessageBox.information(self, "Mappings Loaded",
+                f"Successfully loaded {len(self.map_frames)} frames from {path.name}.")
+
+        return True
+
+    def mapping_entry_save(self, *, prepared=None):
+        """
+        Save sprite mappings, preparing them first unless a result is supplied.
+
+        Returns:
+            True if saved successfully or no file is configured.
+            False on failure or cancellation.
+        """
+        # If not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.mapping_prepare_save()
+
+        # Preparation failed or was canceled
+        if prepared is None:
+            return False
+
+        # No mapping file is configured
+        if not prepared:
+            return True
+
+        path, mapping_data = prepared
+
+        # Write only after mappings are prepared
+        try:
+            # Write the prepared file
+            path.parent.mkdir(parents=True, exist_ok=True)
+            save_mappings(path, mapping_data)
+
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "Mapping Save Error",
+                f"Could not save mappings to {path.name}:\n{str(e)}")
+            return False
+
+        # Adopt the destination only after a successful save
+        self.mapping_buffer_path = path
+
+        QtW.QMessageBox.information(self, "Mappings Saved",
+            f"Successfully saved {len(self.map_frames)} frames to {path.name}.")
+        return True
+
+    def mapping_prepare_load(self):
+        """
+        Parse configured mappings without changing the editor.
+
+        Returns:
+            (path, frames, frame_labels, map_label, use_macros) on success.
+            An empty mapping buffer if no file is configured.
+            None if preparation fails.
+        """
+        file_path_str = (
+            self.map_path_input.text().strip()
+            if self.map_path_input is not None else "")
+
+        # For unconfigured mappings, use an empty buffer
+        if not file_path_str:
+            return None, [], [], "", False
+
+        path = Path(file_path_str)
+
+        try:
+            # Resolve relative paths against the project directory
+            path = self.project.resolve_asset_path(path)
+
+            # Prepare data without changing anything in the editor
+            loaded = load_mappings(path, self.map_dropdown.currentIndex() + 1)
+
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "Mapping Load Error",
+                f"Could not load mappings {path.name}:\n{e}")
+            return None
+
+        return (path, *loaded)
+
+    def mapping_prepare_save(self):
+        """
+        Validate mappings and prepare file contents for saving.
+        (Much of this code was pulled from mapping_entry_save).
+
+        Returns:
+            (path, data) when ready to save.
+            () if no mapping file is configured.
+            None if preparation fails or is canceled.
+        """
+        if self.map_path_input is None:
+            return ()
+
+        # If a filepath is empty, don't save
+        file_path_str = self.map_path_input.text().strip()
+        if not file_path_str:
+            return ()
+
+        # Require a loaded or initialized mapping buffer
+        if self.mapping_buffer_path is None:
+            QtW.QMessageBox.warning(self, "Mapping Save Error",
+                "Load or initialize mappings for this build before saving.")
+            return None
+
+        # Require at least one frame; frames may contain no pieces
+        if not self.map_frames:
+            QtW.QMessageBox.warning(self, "Mapping Save Error",
+                "Add or load at least one mapping frame before saving.")
+            return None
+
+        path = Path(file_path_str)
+
+        try:
+            # Resolve the destination
+            path = self.project.resolve_asset_path(path)
+
+            if path.is_dir():
+                raise IsADirectoryError(f"Save destination is a directory: {path}")
+
+            # Confirm a changed destination
+            if path != self.mapping_buffer_path:
+                if not self.file_confirm_overwrites([path]):
+                    return None
+
+            # Collect the optional ASM description before writing
+            description = ""
+            if path.suffix.lower() == ".asm":
+                description, accepted = QtW.QInputDialog.getText(self, "Sprite Description",
+                    "Enter an optional description for the mappings:", text="New Sprite")
+
+                if not accepted:
+                    return None
+
+            # Build the complete file without writing it
+            mapping_data = prepare_mappings(path, self.map_frames, self.frame_labels,
+                self.map_dropdown.currentIndex() + 1, map_label=self.map_name_input.text().strip(),
+                use_macros=self.macro_cb.isChecked(), description=description)
+
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "Mapping Save Error",
+                f"Could not prepare mappings for {path.name}:\n{e}")
+            return None
+
+        return path, mapping_data
+
+    def mapping_add_entry(self, file_path):
+        # Only one mapping file can be configured
+        if self.map_path_input.text().strip():
+            return
+
+        self.map_path_input.setText(file_path)
+        self.map_file_table.selectRow(0)
+
+    def mapping_remove_entry(self):
+        # Invalidate stale file association
+        self.mapping_buffer_path = None
+
+        # Removes the mapping/DPLC data and re-enables the Add button
+        self.map_path_input.clear()
+        self.map_name_input.clear()
+
+        self.dplc_path_input.clear()
+        self.dplc_name_input.clear()
+
+        self.map_dropdown.setCurrentIndex(0)
+        self.macro_cb.setChecked(False)
+        self.dplc_cb.setChecked(False)
+
+        self.map_file_table.clearSelection()
+
+        # This re-enables the Add button
+        self.mapping_update_file_controls()
+
+    def mapping_set_buffer(self, path, frames, frame_labels, map_label, use_macros, *, refresh=True):
+        """
+        Install loaded or initialized mappings and record their association.
+        """
+        self.map_frames = frames
+        self.frame_labels = frame_labels
+        self.map_name_input.setText(map_label)
+        self.macro_cb.setChecked(use_macros)
+        self.mapping_buffer_path = path
+
+        # Reset the frame index before refreshing controls
+        was_blocked = self.frame_spinbox.blockSignals(True)
+
+        try:
+            self.frame_spinbox.setRange(0, max(0, len(frames) - 1))
+            self.frame_spinbox.setValue(0)
+
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        self.piece_controls_state = None
+
+        # Whole-build loading can defer refreshing
+        #if refresh:
+            #self.on_sprite_frame_changed(refresh_thumbnails=True)
+
+    def mapping_update_file_controls(self):
+        # Disable Add and Enable Load/Save if map asset is loaded
+        has_asset = bool(self.map_path_input.text().strip())
+
+        self.btn_map_add.setEnabled(not has_asset)
+        self.btn_map_load.setEnabled(has_asset)
+        self.btn_map_save.setEnabled(has_asset)
+
+        # Always available to reset the table
+        self.btn_map_remove.setEnabled(True)
+
+    def mapping_dplc_browse(self, line_edit):
+        # Access project directory
+        project_dir = self.project.root_dir
+        start_dir = str(project_dir) if project_dir else ""
+
+        # Save dialog for new DPLC file, WITHOUT creating the file
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Select DPLC File",
+            start_dir, "DPLC Files (*.asm *.bin);;All Files (*)")
+
+        # If successful, store DPLC filepath
+        if file_path:
+            path = self.project.resolve_asset_path(file_path)
+            line_edit.setText(str(path))
+
+
+    # --------------------------------------------------
     # Palette File Entries
     # --------------------------------------------------
     def palette_entry_new(self):
@@ -1136,6 +1429,81 @@ class SpriteEditor(QtW.QWidget):
 
             if len(self.pal_rows) > previous_count and not path.exists():
                 self.palette_new_paths.add(path)
+
+    def palette_entry_load(self, *, prepared=None, refresh=True):
+        """
+        Apply loaded palette data, preparing it first unless supplied.
+
+        Returns:
+            True if successful, False if preparation fails.
+        """
+        # If not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.palette_prepare_load()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        # Install colors and their file associations together
+        loaded_colors, layout, new_paths = prepared
+
+        self.palette_colors = loaded_colors
+        self.palette_buffer_layout = layout
+        self.palette_new_paths = new_paths
+
+        # Set color boxes to loaded colors
+        for box, color in zip(self.palette_boxes, self.palette_colors):
+            box.set_color(color)
+
+        # Sprite build loading can defer rendering
+        if refresh:
+            self.render_art_tiles()     # Refresh VRAM
+        #    self.sprite_refresh_previews() # Refresh canvas AND thumbnails
+
+        return True
+
+    def palette_entry_save(self, *, prepared=None):
+        """
+        Save palettes, preparing them first unless a result is supplied.
+
+        Returns:
+            True if all files saved or no files are configured.
+            False on failure or cancellation.
+            Earlier files may have saved if a later write fails.
+        """
+        # If not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.palette_prepare_save()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        # No palette file is configured
+        if not prepared:
+            return True
+
+        save_jobs, layout = prepared
+
+        # Write only after every entry has been prepared
+        for path, binary_data in save_jobs:
+            try:
+                # Write the prepared file
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "wb") as f:
+                    f.write(binary_data)
+
+            except (OSError, ValueError) as e:
+                QtW.QMessageBox.warning(self,"Palette Save Error",
+                    f"Could not save palette file {path.name}:\n{str(e)}")
+                return False
+
+            self.palette_new_paths.discard(path)
+
+        # Adopt the layout only after all saves succeed
+        self.palette_buffer_layout = layout
+        return True
 
     def palette_prepare_load(self):
         """
@@ -1183,39 +1551,6 @@ class SpriteEditor(QtW.QWidget):
             return None
 
         return loaded_colors, layout, new_paths
-
-    def palette_entry_load(self, *, prepared=None, refresh=True):
-        """
-        Apply loaded palette data, preparing it first unless supplied.
-
-        Returns:
-            True if successful, False if preparation fails.
-        """
-        # If not prepared beforehand, do it here
-        if prepared is None:
-            prepared = self.palette_prepare_load()
-
-        # Preparation failed/cancelled
-        if prepared is None:
-            return False
-
-        # Install colors and their file associations together
-        loaded_colors, layout, new_paths = prepared
-
-        self.palette_colors = loaded_colors
-        self.palette_buffer_layout = layout
-        self.palette_new_paths = new_paths
-
-        # Set color boxes to loaded colors
-        for box, color in zip(self.palette_boxes, self.palette_colors):
-            box.set_color(color)
-
-        # Sprite build loading can defer rendering
-        if refresh:
-            self.render_art_tiles()     # Refresh VRAM
-        #    self.sprite_refresh_previews() # Refresh canvas AND thumbnails
-
-        return True
 
     def palette_prepare_save(self):
         """
@@ -1282,48 +1617,6 @@ class SpriteEditor(QtW.QWidget):
             return None
 
         return save_jobs, layout
-
-    def palette_entry_save(self, *, prepared=None):
-        """
-        Save palettes, preparing them first unless a result is supplied.
-
-        Returns:
-            True if all files saved or no files are configured.
-            False on failure or cancellation.
-            Earlier files may have saved if a later write fails.
-        """
-        # If not prepared beforehand, do it here
-        if prepared is None:
-            prepared = self.palette_prepare_save()
-
-        # Preparation failed/cancelled
-        if prepared is None:
-            return False
-
-        # No palette file is configured
-        if not prepared:
-            return True
-
-        save_jobs, layout = prepared
-
-        # Write only after every entry has been prepared
-        for path, binary_data in save_jobs:
-            try:
-                # Write the prepared file
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with open(path, "wb") as f:
-                    f.write(binary_data)
-
-            except (OSError, ValueError) as e:
-                QtW.QMessageBox.warning(self,"Palette Save Error",
-                    f"Could not save palette file {path.name}:\n{str(e)}")
-                return False
-
-            self.palette_new_paths.discard(path)
-
-        # Adopt the layout only after all saves succeed
-        self.palette_buffer_layout = layout
-        return True
 
     def palette_add_entry(self, file_path):
         """
