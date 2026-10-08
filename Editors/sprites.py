@@ -2152,12 +2152,13 @@ class SpriteEditor(QtW.QWidget):
         base_tile = self.vram_spinbox.value()
         base_palette = self.sprpal_spinbox.value()
 
+        # If no overlay elements are needed, just use the shared renderer
         if not show_overlays:
             return self.renderer.render_frame(frame_data,
                 canvas_size=(self.sprite_canvas_width, self.sprite_canvas_height),
                 base_tile=base_tile, base_palette=base_palette)
         
-        # 256x256 canvas with the center representing the sprite's X/Y origin pivot
+        # Otherwise, use the Sprite Editor's native renderer
         canvas_w, canvas_h = self.sprite_canvas_width, self.sprite_canvas_height
         center_x, center_y = canvas_w // 2, canvas_h // 2
 
@@ -2178,8 +2179,9 @@ class SpriteEditor(QtW.QWidget):
         painter = QPainter(image)
 
         try:
-            # Preserve mapping order so overlapping pieces draw as before
-            for piece_index, piece in enumerate(frame_data):
+            # Draw lower indices last, preserving indices for hover/selection.
+            for piece_index in range(len(frame_data) - 1, -1, -1):
+                piece = frame_data[piece_index]
                 piece_image = self.renderer.render_piece(piece, base_tile=base_tile, base_palette=base_palette)
 
                 x = center_x + piece["x"]
@@ -2188,6 +2190,7 @@ class SpriteEditor(QtW.QWidget):
                 # Selected pieces never receive the hover effect
                 hovered = show_overlays and piece_index == self.hovered_piece and piece_index not in self.selected_pieces
 
+                # Unselected pieces with the mouse over them are transparent
                 if hovered:
                     painter.fillRect(x, y, piece["width"] * 8, piece["height"] * 8,
                         QColor(255, 255, 0, 18))
@@ -2214,12 +2217,8 @@ class SpriteEditor(QtW.QWidget):
 
                 piece = frame_data[index]
 
-                painter.drawRect(
-                    center_x + piece["x"],
-                    center_y + piece["y"],
-                    piece["width"] * 8 - 1,
-                    piece["height"] * 8 - 1,
-                )
+                painter.drawRect(center_x + piece["x"], center_y + piece["y"],
+                    piece["width"] * 8 - 1, piece["height"] * 8 - 1)
 
             painter.end()
 

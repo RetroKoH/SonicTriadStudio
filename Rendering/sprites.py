@@ -94,7 +94,7 @@ class SpriteRenderer:
 
     def render_frame(self, pieces, *, canvas_size=(256, 256), origin=None, base_tile=0, base_palette=0):
         """
-        Build a frame from the given pieces.
+        Build a frame from the given pieces. Pieces are drawn in reverse-mapping order.
         From: sprite_build_frame_image
 
         (Note: This does not apply overlay, or hover transparency. Just renders the frame)
@@ -110,8 +110,8 @@ class SpriteRenderer:
         painter = QPainter(image)
 
         try:
-            # Build frame, with later pieces overlapping previous ones
-            for piece in pieces:
+            # Build frame, with earlier indexed pieces overlapping later ones
+            for piece in reversed(pieces):
                 piece_image = self.render_piece(piece, base_tile=base_tile, base_palette=base_palette)
                 painter.drawImage(center_x + piece["x"], center_y + piece["y"], piece_image)
 
