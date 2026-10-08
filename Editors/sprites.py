@@ -1,22 +1,21 @@
-"""Sprite Editor UI skeleton.
+"""Sprite Editor
 
-Preserves the Sprite Editor layout and the application's UI factories.
-File operations, project integration, sprite rendering, palette editing and
-mapping edits are not wired. Editing controls are disabled placeholders;
-tabs, splitters, the collapsible file panel and DPLC row visibility still work.
+File Manager and rendering with shared functions now working.
+Thumbnails and editing tools are still under construction.
 """
 
 from pathlib import Path
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QColor, QImage, QPixmap
+from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
 
 from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
 from AssetIO.art import decode_art, encode_art
 from AssetIO.palettes import decode_palette, encode_palette
 from AssetIO.mappings import *
 from Rendering.tiles import render_tile_grid
+from Rendering.sprites import SpriteRenderer
 from UI.collapse_panel import CollapsiblePanel
 from UI.color_box import MiniColorBox
 from UI.file_toolbar import create_file_toolbar
@@ -39,6 +38,9 @@ class SpriteEditor(QtW.QWidget):
     def __init__(self, project=None):
         super().__init__()
         self.project = project
+
+        # Reusable rendering and piece caching live outside the editor
+        self.renderer = SpriteRenderer()
 
         # 64 color palette (4 palette lines) for sprite rendering
         self.palette_boxes = []
@@ -77,10 +79,6 @@ class SpriteEditor(QtW.QWidget):
 
         # Frame labels (I'll work this into map_frames later)
         self.frame_labels = []
-
-        # Rendered piece images and the source state they represent
-        self.piece_image_cache = {}
-        self.piece_image_cache_state = None
 
         # Sprite viewer canvas
         self.sprite_canvas_width = 256
@@ -248,6 +246,12 @@ class SpriteEditor(QtW.QWidget):
 
         self.ui_init()
         self.sprite_refresh_editing_ui()
+
+        self.vram_spinbox.valueChanged.connect(self.render_sprite_frame)
+        self.sprpal_spinbox.valueChanged.connect(self.render_sprite_frame)
+        self.origin_checkbox.toggled.connect(self.render_sprite_frame)
+        self.viewer_line_combo.currentIndexChanged.connect(self.render_art_tiles)
+        self.render_sprite_frame()
 
         self.project.project_loaded.connect(self._on_project_loaded)
 
@@ -950,7 +954,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Update property panel and canvas
         self.sprite_refresh_piece_controls()
-        #self.render_sprite_frame()
+        self.render_sprite_frame()
 
     def sprite_refresh_piece_controls(self):
         selected = self.sprite_get_selected_pieces()
@@ -981,8 +985,7 @@ class SpriteEditor(QtW.QWidget):
         state = (
             self.frame_spinbox.value(),
             tuple(
-                (
-                    index,
+                (index,
                     tuple(
                         piece[field]
                         for field in self.piece_spinboxes
@@ -1094,8 +1097,8 @@ class SpriteEditor(QtW.QWidget):
         self.piece_controls_state = None
         self.sprite_refresh_piece_controls()
 
-        #if changed:
-        #    self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
+        if changed:
+            self.render_sprite_frame()
 
     def sprite_clear_selection(self, *, refresh=True):
         """
@@ -1109,6 +1112,7 @@ class SpriteEditor(QtW.QWidget):
         # Proper refresh (only if needed)
         if refresh:
             self.sprite_refresh_editing_ui()
+            self.render_sprite_frame()
 
     def _on_sprite_frame_changed(self, *, refresh_thumbnails=False):
         """
@@ -1448,7 +1452,7 @@ class SpriteEditor(QtW.QWidget):
         # Whole-build loading can defer refreshing
         if refresh:
             self.render_art_tiles()
-            #self.sprite_refresh_previews()  # Refresh canvas AND thumbnails
+            self.render_sprite_frame()
 
     # --------------------------------------------------
     # Mapping File Entries
@@ -1779,7 +1783,7 @@ class SpriteEditor(QtW.QWidget):
         # Sprite build loading can defer rendering
         if refresh:
             self.render_art_tiles()     # Refresh VRAM
-        #    self.sprite_refresh_previews() # Refresh canvas AND thumbnails
+            self.render_sprite_frame()
 
         return True
 
@@ -2079,8 +2083,8 @@ class SpriteEditor(QtW.QWidget):
             self.palette_boxes[col_idx].set_color(new_color)
             # Refresh VRAM after loading new palette
             self.render_art_tiles()
-            # Refresh frame window and thumbnails
-            #self.sprite_refresh_previews()
+            # Refresh the active frame with the new colors
+            self.render_sprite_frame()
 
     def palette_get_file_layout(self):
         """
@@ -2139,3 +2143,101 @@ class SpriteEditor(QtW.QWidget):
             Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
 
         self.vram_label.setPixmap(scaled_pixmap)
+
+    def sprite_build_frame_image(self, frame_idx, show_overlays=False):
+        # Synchronize shared sources once before composing the frame.
+        self.renderer.prepare(self.vram_tiles, self.palette_colors,
+            art_revision=self.art_preview_revision)
+        frame_data = self.map_frames[frame_idx] if 0 <= frame_idx < len(self.map_frames) else []
+        base_tile = self.vram_spinbox.value()
+        base_palette = self.sprpal_spinbox.value()
+
+        if not show_overlays:
+            return self.renderer.render_frame(frame_data,
+                canvas_size=(self.sprite_canvas_width, self.sprite_canvas_height),
+                base_tile=base_tile, base_palette=base_palette)
+        
+        # 256x256 canvas with the center representing the sprite's X/Y origin pivot
+        canvas_w, canvas_h = self.sprite_canvas_width, self.sprite_canvas_height
+        center_x, center_y = canvas_w // 2, canvas_h // 2
+
+        image = QImage(canvas_w, canvas_h, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+
+        if self.origin_checkbox.isChecked():
+            # Draw an origin crosshair to easily see the sprite's anchor pivot
+            crosshair_color = QColor(255, 0, 255, 100)  # To-Do: Make this an option (ColorPicker)
+            for _x in range(canvas_w):
+                image.setPixelColor(_x, center_y, crosshair_color)
+            for _y in range(canvas_h):
+                image.setPixelColor(center_x, _y, crosshair_color)
+
+        if not 0 <= frame_idx < len(self.map_frames):
+            return image
+
+        painter = QPainter(image)
+
+        try:
+            # Preserve mapping order so overlapping pieces draw as before
+            for piece_index, piece in enumerate(frame_data):
+                piece_image = self.renderer.render_piece(piece, base_tile=base_tile, base_palette=base_palette)
+
+                x = center_x + piece["x"]
+                y = center_y + piece["y"]
+
+                # Selected pieces never receive the hover effect
+                hovered = show_overlays and piece_index == self.hovered_piece and piece_index not in self.selected_pieces
+
+                if hovered:
+                    painter.fillRect(x, y, piece["width"] * 8, piece["height"] * 8,
+                        QColor(255, 255, 0, 18))
+                    painter.setOpacity(0.45)
+
+                # Draw the cached image at its current position
+                painter.drawImage(x, y, piece_image)
+
+                # Restore opacity before drawing the next piece
+                painter.setOpacity(1.0)
+
+        finally:
+            painter.end()
+
+        # Draw selection outlines after all sprite pieces
+        if show_overlays and self.selected_pieces:
+            painter = QPainter(image)
+            painter.setPen(QColor(255, 255, 0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            for index in sorted(self.selected_pieces):
+                if not 0 <= index < len(frame_data):
+                    continue
+
+                piece = frame_data[index]
+
+                painter.drawRect(
+                    center_x + piece["x"],
+                    center_y + piece["y"],
+                    piece["width"] * 8 - 1,
+                    piece["height"] * 8 - 1,
+                )
+
+            painter.end()
+
+        return image
+
+    def render_sprite_frame(self):
+        """
+        Draw the current sprite frame on the editor canvas.
+        """
+        image = self.sprite_build_frame_image(self.frame_spinbox.value(), show_overlays=True)
+        self.render_sprite_image(image)
+
+    def render_sprite_image(self, image):
+        pixmap = QPixmap.fromImage(image)
+        scaled_pixmap = pixmap.scaled(
+            image.width() * self.sprite_zoom,
+            image.height() * self.sprite_zoom,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        self.sprite_label.setPixmap(scaled_pixmap)
