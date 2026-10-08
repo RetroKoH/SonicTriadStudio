@@ -110,13 +110,12 @@ class TriadApp(QtW.QMainWindow):
         Returns:
             True if successful, otherwise False
         """
-        ok = QtW.QMessageBox.question(self, "Load Prject",
-                                      "Load this project and replace the data currently "
-                                      "open in the editors?\n\n"
-                                      "Unsaved editor changes will be discarded.",
-                                      QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
-                                      QtW.QMessageBox.StandardButton.No
-                                      )
+        ok = QtW.QMessageBox.question(self, "Load Project",
+            "Load this project and replace the data currently "
+            "open in the editors?\n\n"
+            "Unsaved editor changes will be discarded.",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.No)
 
         if ok != QtW.QMessageBox.StandardButton.Yes:
             return False
@@ -126,7 +125,7 @@ class TriadApp(QtW.QMainWindow):
 
         except Exception as e:
             QtW.QMessageBox.warning(self, "Project Load Error",
-                                    f"Could not load project:\n{e}")
+                f"Could not load project:\n{e}")
             return False
 
         self.project_refresh_asset_tree()
@@ -144,8 +143,7 @@ class TriadApp(QtW.QMainWindow):
         self.dropzone.setText(
             f"<b>Project:</b> {project_name}<br>"
             f"{project.root_dir}<br><br>"
-            "Drag & Drop another .json file to switch"
-        )
+            "Drag & Drop another .json file to switch")
 
     def project_refresh_asset_tree(self):
         """

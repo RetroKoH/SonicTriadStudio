@@ -974,7 +974,7 @@ class PaletteEditor(QtW.QWidget):
         btn_save = prompt.addButton("Save", QtW.QMessageBox.ButtonRole.AcceptRole)
         btn_save_as = prompt.addButton("Save As...", QtW.QMessageBox.ButtonRole.AcceptRole)
         btn_dont_save = prompt.addButton("Don't Save", QtW.QMessageBox.ButtonRole.DestructiveRole)
-        btn_cancel = prompt.addButton("Cancel", QtW.QMessageBox.ButtonRole.RejectRole)
+        prompt.addButton("Cancel", QtW.QMessageBox.ButtonRole.RejectRole)
 
         prompt.exec()
 

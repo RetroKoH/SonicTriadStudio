@@ -5,12 +5,13 @@ Thumbnails and editing tools are still under construction.
 """
 
 from pathlib import Path
+from copy import deepcopy
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
 
-from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
+from constants import PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
 from AssetIO.art import decode_art, encode_art
 from AssetIO.palettes import decode_palette, encode_palette
 from AssetIO.mappings import *
@@ -41,6 +42,13 @@ class SpriteEditor(QtW.QWidget):
 
         # Reusable rendering and piece caching live outside the editor
         self.renderer = SpriteRenderer()
+
+        # File and Project paths
+        self.active_sprite_build = None
+        self.project_sprite_builds = {}
+
+        # Dropdown selection index
+        self._current_dropdown_index = -1
 
         # 64 color palette (4 palette lines) for sprite rendering
         self.palette_boxes = []
@@ -103,8 +111,8 @@ class SpriteEditor(QtW.QWidget):
         self.content_splitter = None
 
         # ui_build_file_toolbar()
-        self.spr_dropdown = create_combobox(
-            tooltip="Select a sprite build from the active project")
+        self.spr_dropdown = create_combobox(tooltip="Select a sprite build from the active project",
+            on_index_changed=self._on_sprite_dropdown_changed)
         self.unsaved_label = create_label("Unsaved Changes")
 
         # ui_build_frame_viewer()
@@ -123,7 +131,8 @@ class SpriteEditor(QtW.QWidget):
         self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
             display_base=16, prefix="$", width=50, tooltip="Starting VRAM Tile Index (Hex)")
         self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3, width=40, tooltip="Base Palette Line")
-        self.btn_clear_spritedata = create_pushbutton("Clear Data", tooltip="Clear the current sprite data")
+        self.btn_clear_spritedata = create_pushbutton("Clear Data", tooltip="Clear the current sprite data",
+            on_clicked=self.file_sprite_clear)
         self.filemanager_tabs = QtW.QTabWidget()
 
         # ui_build_art_tab()
@@ -265,9 +274,9 @@ class SpriteEditor(QtW.QWidget):
         # TOP PANEL TOOLBAR
         toolbar = create_file_toolbar(self.spr_dropdown, self.unsaved_label,
             resource_name="sprite build", unsaved_changes=self._unsaved_changes,
-            on_new=None, on_load=None,
-            on_save=None, on_save_as=None,
-            on_remove=None)
+            on_new=self.file_sprite_new, on_load=self.file_sprite_load,
+            on_save=self.file_sprite_save, on_save_as=self.file_sprite_save,
+            on_remove=self.file_sprite_remove)
         layout.addLayout(toolbar)
 
         sprite_panel = self.ui_build_sprite_panel()     # LEFT PANEL: Sprite View and File Manager
@@ -791,6 +800,466 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     # File Operations
     # --------------------------------------------------
+    def file_sprite_new(self):
+        """
+        Create and select an empty sprite build definition.
+
+        Returns:
+            True if successful.
+            False on failure or cancellation.
+        """
+        project = self.project
+
+        # Verify a project is loaded (To-Do: Palette Editor SHOULD do this also).
+        if not project.is_loaded:
+            QtW.QMessageBox.warning(self, "No Project",
+                "Please load a project file first.")
+            return False
+
+        # Prompt user for a new sprite build name (To-Do: Append a number to 'New Sprite' with repeated use)
+        sprite_name, ok = QtW.QInputDialog.getText(self, "New Sprite Build",
+            "Enter a name for the new sprite build:", text="New Sprite")
+
+        if not ok or not sprite_name.strip():
+            return False
+
+        # Can this be done before the OK check?
+        sprite_name = sprite_name.strip()
+
+        # Ensure 'sprites' dictionary exists in project data
+        sprites_dict = project.data.get("sprites", {})
+
+        # Prevent duplicate definitions
+        if sprite_name in sprites_dict:
+            QtW.QMessageBox.warning(self, "Duplicate Name",
+                f"A sprite named '{sprite_name}' already exists.")
+            return False
+
+        # Confirm before creating and switching to the new build
+        if self._current_dropdown_index >= 0:
+            answer = QtW.QMessageBox.question(self, "New Sprite Build",
+                f"Create and switch to '{sprite_name}'?\n\n"
+                "This will clear the current palettes, art, mappings, and "
+                "file-manager entries. Unsaved changes will be discarded.",
+                QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+                QtW.QMessageBox.StandardButton.No)
+
+            if answer != QtW.QMessageBox.StandardButton.Yes:
+                return False
+
+        # Create an empty template for the sprite build
+        new_sprite = {
+            "format": 1,        # Sonic 1 by default
+            "vram_index": 0,    # Global starting VRAM index
+            "palette_line": 0,
+            "palettes": [],
+            "art": [],
+            "mappings": {},
+            "dplcs": {
+                "enabled": False,
+                "path": "",
+                "label": "",
+            }
+        }
+
+        try:
+            # Prepare the new build without changing active project data
+            proposed = project.snapshot()
+            proposed.setdefault("sprites", {})[sprite_name] = new_sprite
+
+            # Save and commit through the shared service
+            project.save(proposed)
+
+        except (OSError, TypeError, ValueError) as e:
+            QtW.QMessageBox.warning(
+                self,
+                "New Sprite Error",
+                f"Could not create sprite build '{sprite_name}':\n{e}",
+            )
+            return False
+
+        # Use the configuration objects committed by the service
+        self.project_sprite_builds = project.data["sprites"]
+        new_sprite = self.project_sprite_builds[sprite_name]
+
+        # Select the new build without triggering another confirmation
+        was_blocked = self.spr_dropdown.blockSignals(True)
+
+        try:
+            if (
+                self.spr_dropdown.count() == 1
+                and self.spr_dropdown.itemText(0) == "No Sprites Found"
+            ):
+                self.spr_dropdown.clear()
+
+            self.spr_dropdown.setEnabled(True)
+            self.spr_dropdown.addItem(
+                sprite_name,
+                userData=new_sprite,
+            )
+
+            # Saving replaces the project dictionary. Refresh the
+            # configurations attached to existing dropdown entries too.
+            for index in range(self.spr_dropdown.count()):
+                name = self.spr_dropdown.itemText(index)
+
+                if name in self.project_sprite_builds:
+                    self.spr_dropdown.setItemData(
+                        index,
+                        self.project_sprite_builds[name],
+                    )
+
+            self.spr_dropdown.setCurrentText(sprite_name)
+
+        finally:
+            self.spr_dropdown.blockSignals(was_blocked)
+
+        # Clear prior assets and repopulate file manager
+        self._on_sprite_dropdown_changed(confirm=False)
+        return True
+
+    def file_sprite_load(self):
+        """
+        Prepare all configured sprite assets before applying them.
+
+        Returns:
+            True if loading succeeds.
+            False if the project, build, or asset preparation fails.
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            return False
+
+        # Get the selected sprite build name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return False
+
+        # Get sprite data so we can load the global VRAM index
+        sprite_data = project.data.get("sprites", {}).get(sprite_name)
+        if sprite_data is None:
+            QtW.QMessageBox.warning(self, "Load Error",
+                f"Sprite '{sprite_name}' not found in project data.")
+            return False
+
+        # Prepare all assets before changing loaded data
+        prepared_palettes = self.palette_prepare_load()
+        if prepared_palettes is None:
+            return False
+
+        prepared_art = self.art_prepare_load()
+        if prepared_art is None:
+            return False
+
+        prepared_mappings = self.mapping_prepare_load()
+        if prepared_mappings is None:
+            return False
+
+        # Prevent viewing settings from triggering early renders
+        vram_blocked = self.vram_spinbox.blockSignals(True)
+        palette_blocked = self.sprpal_spinbox.blockSignals(True)
+
+        try:
+            # Set global VRAM index and reset frame counter
+            self.vram_spinbox.setValue(sprite_data.get("vram_index", 0))
+            self.sprpal_spinbox.setValue(sprite_data.get("palette_line", 0))
+
+            # Apply prepared buffers without rendering
+            self.palette_entry_load(prepared=prepared_palettes, refresh=False)
+            self.art_entry_load(prepared=prepared_art, refresh=False)
+            self.mapping_entry_load(prepared=prepared_mappings, refresh=False)
+
+        finally:
+            self.vram_spinbox.blockSignals(vram_blocked)
+            self.sprpal_spinbox.blockSignals(palette_blocked)
+
+        # Refresh after all buffers and settings are installed
+        self.render_art_tiles()
+        self._on_sprite_frame_changed(refresh_thumbnails=True)
+
+        # Notification (since mapping_entry_load doesn't trigger one here)
+        QtW.QMessageBox.information(self, "Sprite Loaded",
+            f"Sprite '{sprite_name}' loaded successfully.\n"
+            f"Mapping frames: {len(self.map_frames)}")
+
+        return True
+
+    def file_sprite_save(self):
+        """
+        Prepare all sprite assets and build settings, then save them.
+
+        Returns:
+            True if all saves succeed, False on failure or cancellation.
+            Earlier asset writes are not rolled back if a later save fails.
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            QtW.QMessageBox.warning(
+                self,
+                "No Project",
+                "Please load a project file first.",
+            )
+            return False
+
+        # Get the selected sprite build name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return False
+
+        # Ensure Sprite dict exists and retrieve it
+        sprite_data = project.data.get("sprites", {}).get(sprite_name)
+        if sprite_data is None:
+            QtW.QMessageBox.warning(self, "Save Error",
+                f"Sprite '{sprite_name}' not found in project data."
+            )
+            return False
+
+        try:
+            # Prepare the current build without changing active data
+            proposed_project = project.snapshot()
+            proposed_project["sprites"][sprite_name] = self.file_sprite_collect_config(sprite_data)
+
+            # Validate the destination and serialize before saving assets
+            prepared_project = project.prepare_save(proposed_project)
+            project_path = prepared_project[0]
+
+        except Exception as e:
+            QtW.QMessageBox.warning(
+                self,
+                "Save Error",
+                f"Could not prepare sprite configuration:\n{e}",
+            )
+            return False
+
+        # Prepare all assets before writing any files
+        prepared_palettes = self.palette_prepare_save()
+        if prepared_palettes is None:
+            return False
+
+        prepared_art = self.art_prepare_save()
+        if prepared_art is None:
+            return False
+
+        prepared_mappings = self.mapping_prepare_save()
+        if prepared_mappings is None:
+            return False
+
+        # Collect every destination, including the project JSON
+        # Here we check destinations to avoid cross-contamination
+        # (writing different kinds of files to the same destination)
+        destinations = [(project_path, "Project JSON")]
+
+        if prepared_palettes:
+            save_jobs, _ = prepared_palettes
+            destinations.extend((path, "Palette") for path, _ in save_jobs)
+
+        if prepared_art:
+            save_jobs, _ = prepared_art
+            destinations.extend((path, "Art") for path, _ in save_jobs)
+
+        if prepared_mappings:
+            path, _ = prepared_mappings
+            destinations.append((path, "Mappings"))
+
+        # Reject destinations shared by multiple files
+        seen_paths = {}
+
+        for path, asset_type in destinations:
+            if path in seen_paths:
+                QtW.QMessageBox.warning(self, "Save Error",
+                    f"{seen_paths[path]} and {asset_type} use the same "
+                    f"save destination:\n{path}\n\n"
+                    "Choose separate destinations before saving.")
+                return False
+
+            seen_paths[path] = asset_type
+
+        # Write the prepared assets; stop if any save fails
+        # Save palette(s)
+        if not self.palette_entry_save(prepared=prepared_palettes):
+            return False
+
+        # Save art file(s)
+        if not self.art_entry_save(prepared=prepared_art):
+            return False
+
+        # Save mappings
+        if not self.mapping_entry_save(prepared=prepared_mappings):
+            return False
+
+        try:
+            # Write the prepared JSON and commit active project data
+            project.save_prepared(prepared_project)
+
+        except Exception as e:
+            QtW.QMessageBox.warning(
+                self,
+                "Project Save Error",
+                f"Could not save project JSON:\n{e}",
+            )
+            return False
+
+        # Refresh references from the newly committed project data
+        self.project_sprite_builds = project.data["sprites"]
+
+        was_blocked = self.spr_dropdown.blockSignals(True)
+
+        try:
+            for index in range(self.spr_dropdown.count()):
+                name = self.spr_dropdown.itemText(index)
+
+                if name in self.project_sprite_builds:
+                    self.spr_dropdown.setItemData(
+                        index,
+                        self.project_sprite_builds[name],
+                    )
+
+        finally:
+            self.spr_dropdown.blockSignals(was_blocked)
+
+        QtW.QMessageBox.information(self, "Project Saved",
+            f"Sprite '{sprite_name}' configuration saved to project JSON.")
+
+        return True
+
+    def file_sprite_remove(self):
+        """
+        Remove the selected build from the active project.
+        Discard all pending edits without deleting asset files from disk.
+
+        Returns:
+            True if successful, False on failure or cancellation.
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            return False
+
+        # Get the currently selected sprite build
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return False
+
+        sprites_dict = project.data.get("sprites", {})
+        if sprite_name not in sprites_dict:
+            QtW.QMessageBox.warning(self, "Remove Sprite Error",
+                f"Sprite '{sprite_name}' not found in project data.")
+            return False
+
+        # Prompt user before removing the sprite
+        answer = QtW.QMessageBox.question(
+            self, "Remove Sprite Build",
+            f"Are you sure you want to remove '{sprite_name}' from the project?\n\n"
+            "Note: The actual files will NOT be deleted from your disassembly.",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.No)
+
+        if answer != QtW.QMessageBox.StandardButton.Yes:
+            return False
+
+        try:
+            # Prepare removal without changing active project data
+            proposed = project.snapshot()
+            del proposed["sprites"][sprite_name]
+
+            # Save and commit through the shared service
+            project.save(proposed)
+
+        except (OSError, TypeError, ValueError) as e:
+            QtW.QMessageBox.warning(
+                self,
+                "Remove Sprite Error",
+                f"Could not remove sprite build '{sprite_name}':\n{e}",
+            )
+            return False
+
+        # Clear discarded editor data only after saving succeeds
+        self.sprite_clear_data()
+        self.active_sprite_build = None
+
+        # Rebuild the dropdown from the newly committed project data
+        self.proj_populate_sprite_list(
+            project.data.get("sprites", {})
+        )
+
+        return True
+
+    def file_sprite_clear(self):
+        """
+        Discard loaded sprite assets while preserving File Manager settings.
+
+        Returns:
+            True if cleared, False if canceled.
+        """
+        answer = QtW.QMessageBox.question(self, "Clear Loaded Data",
+            "Clear the loaded palettes, art, and mappings?\n\n"
+            "Pending asset edits will be discarded. "
+            "File Manager settings will be kept.",
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.No)
+
+        if answer != QtW.QMessageBox.StandardButton.Yes:
+            return False
+
+        # Clear out all sprite data
+        self.sprite_clear_data(clear_file_manager=False)
+        return True
+
+    def file_sprite_collect_config(self, sprite_data):
+        """
+        Collect current build settings and store them in a separate dictionary,
+        without changing live project data.
+
+        Returns collected build data.
+        """
+        config = deepcopy(sprite_data)
+        stored_path = self.project.store_asset_path
+
+        config["vram_index"] = self.vram_spinbox.value()
+        config["palette_line"] = self.sprpal_spinbox.value()
+        config["format"] = (self.map_dropdown.currentIndex() + 1
+            if self.map_dropdown is not None
+            else config.get("format", 1))
+
+        # Include empty lists and rows reserving palette lines
+        config["palettes"] = [
+            {"path": stored_path(path), "length": num_lines}
+            for path, num_lines in self.palette_get_file_layout()
+        ]
+
+        config["art"] = []
+        for path_input, comp_combo, offset_spin, count_spin, _ in self.art_rows:
+            path_text = path_input.text().strip()
+            if path_text:
+                config["art"].append({
+                    "path": stored_path(path_text),
+                    "compression": comp_combo.currentText(),
+                    "offset": offset_spin.value(),
+                    "count": count_spin.value(),
+                })
+
+        # Clear removed mappings and their DPLC settings
+        config["mappings"] = {}
+        config["dplcs"] = {"enabled": False, "path": "", "label": ""}
+        map_path = (self.map_path_input.text().strip()
+            if self.map_path_input is not None else "")
+
+        if map_path:
+            config["mappings"] = {
+                "path": stored_path(map_path),
+                "label": self.map_name_input.text().strip(),
+            }
+            config["dplcs"] = {
+                "enabled": self.dplc_cb.isChecked(),
+                "path": stored_path(self.dplc_path_input.text().strip()),
+                "label": self.dplc_name_input.text().strip(),
+            }
+
+        return config
+
+
     def file_confirm_overwrites(self, paths):
         """
         Confirm replacement of existing files at changed save assignments.
@@ -827,12 +1296,233 @@ class SpriteEditor(QtW.QWidget):
 
         return answer == QtW.QMessageBox.StandardButton.Yes
 
+
+    # --------------------------------------------------
+    # Project File Selection
+    # --------------------------------------------------
+    def proj_populate_sprite_list(self, sprite_builds):
+        self.project_sprite_builds = sprite_builds
+
+        # Previous indices no longer refer to the rebuilt list
+        self._current_dropdown_index = -1
+
+        self.spr_dropdown.blockSignals(True)
+        self.spr_dropdown.clear()
+
+        if not sprite_builds:
+            self.spr_dropdown.addItem("No Sprites Found", userData=None)
+            self.spr_dropdown.setEnabled(False)
+            self.spr_dropdown.blockSignals(False)
+            return
+
+        self.spr_dropdown.setEnabled(True)
+        for sprite_name, config in sprite_builds.items():
+            # Display key name in dropdown
+            self.spr_dropdown.addItem(sprite_name, userData=config)
+
+        # Silently reset the selection
+        self.spr_dropdown.setCurrentIndex(-1)
+        self.spr_dropdown.blockSignals(False)
+
+        # Only auto-load index 0 if we aren't currently targeting a specific sprite build
+        if not self.active_sprite_build and self.spr_dropdown.count() > 0:
+            self.spr_dropdown.setCurrentIndex(0)
+
+    # File Toolbar Dropdown function
+    def _on_sprite_dropdown_changed(self, *, confirm=True):
+        project = self.project
+
+        if not project.is_loaded:
+            return
+
+        # Get the selected sprite build name
+        sprite_name = self.spr_dropdown.currentText()
+        if not sprite_name or sprite_name == "No Sprites Found":
+            return
+
+        # Ensure 'sprites' dictionary exists and contains our sprite
+        sprites_dict = project.data.get("sprites", {})
+        if sprite_name not in sprites_dict:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+
+        # Get data for the newly selected sprite build
+        sprite_data = sprites_dict[sprite_name]
+        if not sprite_data:
+            QtW.QMessageBox.warning(self, "Load Error", f"Sprite '{sprite_name}' not found in project data.")
+            return
+
+        # Helper to convert relative paths/Path objects to full absolute path strings
+        def resolve_path_str(raw_path):
+            path = project.resolve_asset_path(raw_path)
+            return str(path) if path is not None else ""
+
+        # Ignore an unchanged selection
+        new_index = self.spr_dropdown.currentIndex()
+        if new_index == self._current_dropdown_index:
+            return
+
+        # Confirm before discarding the current build's editor state
+        if confirm and self._current_dropdown_index >= 0:
+            answer = QtW.QMessageBox.question(
+                self, "Switch Sprite Build",
+                f"Switch to '{sprite_name}'?\n\n"
+                "This will clear the current palettes, art, and mappings. "
+                "Unsaved changes will be discarded.",
+                QtW.QMessageBox.StandardButton.Yes
+                | QtW.QMessageBox.StandardButton.No,
+                QtW.QMessageBox.StandardButton.No,
+            )
+
+            if answer != QtW.QMessageBox.StandardButton.Yes:
+                # Restore the previous selection without triggering this handler
+                was_blocked = self.spr_dropdown.blockSignals(True)
+
+                try:
+                    self.spr_dropdown.setCurrentIndex(
+                        self._current_dropdown_index
+                    )
+                finally:
+                    self.spr_dropdown.blockSignals(was_blocked)
+
+                return
+
+        # Clear loaded assets and entries before applying new ones
+        self.sprite_clear_data()
+
+        # Fill out palette data
+        for pal in sprite_data.get("palettes", []):
+            raw_path = pal.get("path", "") if isinstance(pal, dict) else pal
+            self.palette_add_entry(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, line_combo = self.pal_rows[-1]
+            line_combo.setCurrentText(str(pal.get("length", 1)))
+
+        # Fill out art data
+        for art in sprite_data.get("art", []):
+            raw_path = art.get("path", "") if isinstance(art, dict) else art
+            self.art_add_entry(resolve_path_str(raw_path))
+
+            # New row at the end of the list
+            path_input, comp_combo, offset_spin, count_spin, art_tiles = self.art_rows[-1]
+            offset_spin.setValue(art.get("offset", 0))
+            comp_combo.setCurrentText(art.get("compression", "Uncompressed"))
+            count_spin.setValue(art.get("count", 0))  # Load all tiles by default
+
+        # Fill out mapping data
+        mappings = sprite_data.get("mappings", {})
+        dplcs = sprite_data.get("dplcs", {})
+
+        # Support an older configuration containing only a path
+        if not isinstance(mappings, dict):
+            mappings = {"path": mappings}
+
+        if not isinstance(dplcs, dict):
+            dplcs = {}
+
+        self.map_dropdown.setCurrentIndex(sprite_data.get("format", 1) - 1)
+
+        self.map_path_input.setText(resolve_path_str(mappings.get("path", "")))
+        self.map_name_input.setText(mappings.get("label", ""))
+
+        self.dplc_path_input.setText(resolve_path_str(dplcs.get("path", "")))
+        self.dplc_name_input.setText(dplcs.get("label", ""))
+        self.dplc_cb.setChecked(dplcs.get("enabled", False))
+
+        # Remember the accepted selection
+        self._current_dropdown_index = new_index
+
     def _on_project_loaded(self):
-        pass
+        """
+        Reset sprite data and read the active project's build list.
+        """
+        self.sprite_clear_data()
+        self.active_sprite_build = None
+
+        sprite_builds = self.project.data.get("sprites", [])
+        self.proj_populate_sprite_list(sprite_builds)
+
+
+    # --------------------------------------------------
+    # File Manager
+    # --------------------------------------------------
+    def filemanager_clear(self):
+        """
+        Remove file-manager entries and invalidate their file associations.
+        """
+        self.palette_buffer_layout = None
+        self.palette_new_paths.clear()
+
+        # Clean out Palette rows
+        while self.pal_rows:
+            self.palette_remove_entry(0)
+
+        # Clean out Art rows
+        while self.art_rows:
+            self.art_remove_entry(0)
+
+        # Clean out Mapping fields
+        self.mapping_remove_entry()
+
 
     # --------------------------------------------------
     # Sprite Functions
     # --------------------------------------------------
+    def sprite_clear_data(self, *, clear_file_manager=True):
+        """Clear loaded assets and reset previews, optionally clearing file manager entries."""
+        # Clear sprite piece selection
+        self.sprite_clear_selection(refresh=False)
+
+        # Clear palette to black and invalidate file association
+        self.palette_buffer_layout = None
+        black = QColor(0, 0, 0)
+        self.palette_colors = [black for _i in range(64)]
+        for box in self.palette_boxes:
+            box.set_color(black)
+
+        # Clear art buffers and their file associations
+        self.art_buffer_paths.clear()
+
+        # Clear Art Tiles
+        for _, _, _, _, art_tiles in self.art_rows:
+            art_tiles.clear()
+
+        # Flush VRAM and invalidate cached previews
+        self.vram_tiles.clear()
+        self.art_preview_revision += 1
+
+        # Invalidate stale mapping file association
+        self.mapping_buffer_path = None
+
+        # Clear Sprite mappings and labels
+        self.map_frames.clear()
+        self.frame_labels.clear()
+        self.sprite_refresh_frame_name()
+
+        # Reset UI widgets in the Sprite Viewer
+        if clear_file_manager:
+            self.vram_spinbox.setValue(0)
+            self.sprpal_spinbox.setValue(0)
+
+        # Reset the frame selector for the empty mapping buffer
+        was_blocked = self.frame_spinbox.blockSignals(True)
+
+        try:
+            self.frame_spinbox.setRange(0, 0)
+            self.frame_spinbox.setValue(0)
+
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        # Refresh controls and previews after clearing the data
+        self.sprite_refresh_editing_ui()
+        self.render_art_tiles()
+        #self.sprite_refresh_previews() # Refresh canvas AND thumbnails
+
+        if clear_file_manager:
+            self.filemanager_clear()
+
     def sprite_refresh_frame_name(self):
         frame_index = self.frame_spinbox.value()
         has_frame = (0 <= frame_index < len(self.map_frames)
@@ -1579,7 +2269,7 @@ class SpriteEditor(QtW.QWidget):
                 f"Could not load mappings {path.name}:\n{e}")
             return None
 
-        return (path, *loaded)
+        return path, *loaded
 
     def mapping_prepare_save(self):
         """
@@ -1591,9 +2281,6 @@ class SpriteEditor(QtW.QWidget):
             () if no mapping file is configured.
             None if preparation fails or is canceled.
         """
-        if self.map_path_input is None:
-            return ()
-
         # If a filepath is empty, don't save
         file_path_str = self.map_path_input.text().strip()
         if not file_path_str:
