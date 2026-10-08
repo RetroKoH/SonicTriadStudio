@@ -985,7 +985,13 @@ class SpriteEditor(QtW.QWidget):
 
         return True
 
-    def file_sprite_save(self):
+    def file_sprite_save_as(self):
+        """
+        Save the current build under a new build name, keeping asset paths.
+        """
+        self.file_sprite_save(save_as=True)
+    
+    def file_sprite_save(self, *, save_as=False):
         """
         Prepare all sprite assets and build settings, then save them.
 
@@ -1015,6 +1021,37 @@ class SpriteEditor(QtW.QWidget):
                 f"Sprite '{sprite_name}' not found in project data."
             )
             return False
+
+        # SAVE AS block
+        if save_as:
+            # Suggest an unused name without replacing an existing build.
+            sprites_dict = project.data.get("sprites", {})
+            base_name = f"{sprite_name} Copy"
+            suggested_name = base_name
+            suffix = 2
+            while suggested_name in sprites_dict:
+                suggested_name = f"{base_name} {suffix}"
+                suffix += 1
+
+            new_name, ok = QtW.QInputDialog.getText(self, "Save Sprite Build As",
+                "Enter a new name for this sprite build:", text=suggested_name)
+            if not ok:
+                return False
+
+            new_name = new_name.strip()
+            if not new_name:
+                QtW.QMessageBox.warning(self, "Invalid Name",
+                    "Please enter a nonblank sprite build name.")
+                return False
+
+            if new_name == "No Sprites Found" or new_name in sprites_dict:
+                QtW.QMessageBox.warning(self, "Invalid Name",
+                    "That name is reserved or already belongs to a sprite build. "
+                    "Please choose another name.")
+                return False
+
+            # Collect from the original definition but save under the new key.
+            sprite_name = new_name
 
         try:
             # Prepare the current build without changing active data
@@ -1107,14 +1144,23 @@ class SpriteEditor(QtW.QWidget):
         was_blocked = self.spr_dropdown.blockSignals(True)
 
         try:
+            if save_as:
+                # Add new name to the dropdown
+                self.spr_dropdown.addItem(sprite_name,
+                    userData=self.project_sprite_builds[sprite_name])
+            
             for index in range(self.spr_dropdown.count()):
                 name = self.spr_dropdown.itemText(index)
 
                 if name in self.project_sprite_builds:
                     self.spr_dropdown.setItemData(
-                        index,
-                        self.project_sprite_builds[name],
-                    )
+                        index, self.project_sprite_builds[name])
+
+                if save_as:
+                    # Keep loaded buffers and file associations. The normal dropdown
+                    # handler would clear them while switching to the new build.
+                    self.spr_dropdown.setCurrentText(sprite_name)
+                    self._current_dropdown_index = self.spr_dropdown.currentIndex()
 
         finally:
             self.spr_dropdown.blockSignals(was_blocked)
