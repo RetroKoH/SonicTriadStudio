@@ -275,7 +275,7 @@ class SpriteEditor(QtW.QWidget):
         toolbar = create_file_toolbar(self.spr_dropdown, self.unsaved_label,
             resource_name="sprite build", unsaved_changes=self._unsaved_changes,
             on_new=self.file_sprite_new, on_load=self.file_sprite_load,
-            on_save=self.file_sprite_save, on_save_as=self.file_sprite_save,
+            on_save=self.file_sprite_save, on_save_as=self.file_sprite_save_as,
             on_remove=self.file_sprite_remove)
         layout.addLayout(toolbar)
 
