@@ -5,6 +5,7 @@ from PyQt6 import QtGui
 from PyQt6.QtCore import Qt
 
 from Core.project import Project
+from Core.asset_info import AssetInfo
 from UI.themes import apply_theme
 from Editors import *
 
@@ -79,6 +80,7 @@ class TriadApp(QtW.QMainWindow):
         self.asset_tree.setIndentation(20)
         self.asset_tree.setUniformRowHeights(True)
         self.asset_tree.setSortingEnabled(False)  # Preserve JSON order (for now)
+        self.asset_tree.itemDoubleClicked.connect(self.project_asset_show_info)
         content.addWidget(self.asset_tree, stretch=1)
 
         self.dropzone = DropWidget(self, "Drop Project JSON file here")
@@ -157,42 +159,101 @@ class TriadApp(QtW.QMainWindow):
         folder_icon = asset_style.standardIcon(QtW.QStyle.StandardPixmap.SP_DirIcon)
         file_icon = asset_style.standardIcon(QtW.QStyle.StandardPixmap.SP_FileIcon)
 
-        def add_folder(parent, name):
-            item = QtW.QTreeWidgetItem(parent, [name])
+        def add_folder(parent, folder_name):
+            item = QtW.QTreeWidgetItem(parent, [folder_name])
             item.setIcon(0, folder_icon)
             return item
 
-        def add_file(parent, path):
-            if not path:
-                return
+        def add_asset(parent, asset_path):
+            if not asset_path:
+                return None
 
-            path = str(path)
-            item = QtW.QTreeWidgetItem(parent, [Path(path).name])
+            asset_path = str(asset_path)
+            item = QtW.QTreeWidgetItem(parent, [Path(asset_path).name])
             item.setIcon(0, file_icon)
-            item.setToolTip(0, path)
+            item.setToolTip(0, asset_path)
 
             # Keep JSON path available for future open/context menu actions
-            item.setData(0, Qt.ItemDataRole.UserRole, path)
+            item.setData(0, Qt.ItemDataRole.UserRole, {"type": "palette", "id": path})
             return item
 
         # Standalone palette resources
         palettes_item = add_folder(self.asset_tree, "Palettes")
 
         for path in data.get("palettes", []):
-            add_file(palettes_item, path)
+            add_asset(palettes_item, path)
 
         # Sprite builds and their associated resources
-        # Sprite builds
         sprites_item = add_folder(self.asset_tree, "Sprites")
 
         for name in data.get("sprites", {}):
             build_item = QtW.QTreeWidgetItem(sprites_item, [name])
             build_item.setIcon(0, file_icon)
-            build_item.setData(0, Qt.ItemDataRole.UserRole, name)
+            build_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "sprite", "id": name})
 
-        # Show resource categories with folders collapsed
+        # Show resource categories with all folders collapsed
         self.asset_tree.expandToDepth(-1)
 
+    def project_asset_show_info(self, item):
+        """
+        Show basic information for the double-clicked project asset.
+
+        The dialog is in its own file because I plan to expand on its functionality.
+        """
+        if item is None or not self.project.is_loaded:
+            return
+
+        asset = item.data(0, Qt.ItemDataRole.UserRole)
+
+        # Category folders have no asset metadata.
+        if not isinstance(asset, dict):
+            return
+
+        asset_type = asset.get("type")
+        asset_id = asset.get("id")
+
+        # Palettes (Palette Editor)
+        if asset_type == "palette":
+            path = self.project.resolve_asset_path(asset_id)
+
+            if path is None:
+                return
+
+            name = path.name
+            type_label = "Palette"
+            details = [
+                ("Project path", asset_id),
+                ("Full path", str(path)),
+                ("File exists", "Yes" if path.is_file() else "No"),
+            ]
+
+        # Sprite Builds (Sprites)
+        elif asset_type == "sprite":
+            build = self.project.data.get("sprites", {}).get(asset_id)
+
+            if not isinstance(build, dict):
+                return
+
+            mappings = build.get("mappings") or {}
+            dplcs = build.get("dplcs") or {}
+
+            name = asset_id
+            type_label = "Sprite Build"
+            details = [
+                ("Art files", len(build.get("art") or [])),
+                ("Palette files", len(build.get("palettes") or [])),
+                ("Mappings", mappings.get("path") or "Not configured"),
+                ("DPLCs", dplcs.get("path") or "Not configured"),
+            ]
+
+        else:
+            return
+
+        # Open Asset Info window
+        self.asset_info_dialog = AssetInfo(name, type_label, details, self)
+
+        self.asset_info_dialog.finished.connect(self.asset_info_dialog.deleteLater)
+        self.asset_info_dialog.open()
 
 class DropWidget(QtW.QLabel):
     def __init__(self, app, text=""):
