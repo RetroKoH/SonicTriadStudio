@@ -130,9 +130,9 @@ class SpriteEditor(QtW.QWidget):
             tooltip="Expand or collapse the file manager")
         self.btn_toggle_filemanager = self.spr_file_group.toggle_button
         self.vram_spinbox = create_spinbox(minimum=0, maximum=2047, display_base=16, prefix="$",
-            width=50, tooltip="Starting VRAM Tile Index (Hex)", on_value_changed=self.sprite_refresh_previews)
+            width=50, tooltip="Starting VRAM Tile Index (Hex)")
         self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3,
-            width=40, tooltip="Base Palette Line", on_value_changed=self.sprite_refresh_previews)
+            width=40, tooltip="Base Palette Line")
         self.btn_clear_spritedata = create_pushbutton("Clear Data", tooltip="Clear the current sprite data",
             on_clicked=self.file_sprite_clear)
         self.filemanager_tabs = QtW.QTabWidget()
@@ -200,7 +200,7 @@ class SpriteEditor(QtW.QWidget):
         self.frame_spinbox = create_spinbox(minimum=0, maximum=0, on_value_changed=self._on_sprite_frame_changed)
         self.frame_name_input = create_lineedit(tooltip="Name of the mapping frame (in ASM files)")
         self.btn_frame_add = create_pushbutton("Add Frame",
-            tooltip="Add a frame", on_clicked=self.sprite_add_frame, enabled=False)
+            tooltip="Add a frame", on_clicked=self.sprite_add_frame, enabled=True)
         self.btn_frame_remove = create_pushbutton("Remove Frame", width=85,
             tooltip="Remove the current frame", on_clicked=self.sprite_remove_frame, enabled=False)
         self.btn_frame_copy = create_pushbutton("Copy Frame", width=85,
@@ -259,10 +259,11 @@ class SpriteEditor(QtW.QWidget):
         self.ui_init()
         self.sprite_refresh_editing_ui()
 
-        self.vram_spinbox.valueChanged.connect(self.render_sprite_frame)
-        self.sprpal_spinbox.valueChanged.connect(self.render_sprite_frame)
+        self.vram_spinbox.valueChanged.connect(self.sprite_refresh_previews)
+        self.sprpal_spinbox.valueChanged.connect(self.sprite_refresh_previews)
         self.origin_checkbox.toggled.connect(self.render_sprite_frame)
         self.viewer_line_combo.currentIndexChanged.connect(self.render_art_tiles)
+
         self.render_sprite_frame()
 
         self.project.project_loaded.connect(self._on_project_loaded)
@@ -438,7 +439,10 @@ class SpriteEditor(QtW.QWidget):
         table.setColumnWidth(2, 110)
         table.setColumnWidth(3, 90)
 
+        table.itemSelectionChanged.connect(self.art_update_file_controls)
+
         layout.addWidget(table, stretch=1)
+        self.art_update_file_controls()
 
         return tab
 
@@ -518,6 +522,7 @@ class SpriteEditor(QtW.QWidget):
 
         btn_dplc_browse = QtW.QPushButton("...")
         btn_dplc_browse.setFixedWidth(30)
+        btn_dplc_browse.clicked.connect(lambda: self.mapping_dplc_browse(self.dplc_path_input))
 
         dplc_file_layout.addWidget(self.dplc_path_input, stretch=1)
         dplc_file_layout.addWidget(btn_dplc_browse)
@@ -566,7 +571,8 @@ class SpriteEditor(QtW.QWidget):
         header = table.verticalHeader()
         header.setDefaultSectionSize(20)
         header.setSectionResizeMode(QtW.QHeaderView.ResizeMode.Fixed)
-        header.setSectionsMovable(False)
+        header.setSectionsMovable(True)
+        header.sectionMoved.connect(self.palette_move_entry)
 
         # Let the filename column take the remaining space
         header = table.horizontalHeader()
@@ -574,7 +580,10 @@ class SpriteEditor(QtW.QWidget):
         table.setColumnWidth(1, 75)
         table.verticalHeader().setDefaultSectionSize(30)
 
+        table.itemSelectionChanged.connect(self.palette_update_file_controls)
+
         layout.addWidget(table, stretch=1)
+        self.palette_update_file_controls()
 
         return tab
 
@@ -662,7 +671,7 @@ class SpriteEditor(QtW.QWidget):
         frame_list.setViewMode(QtW.QListView.ViewMode.IconMode)
         frame_list.setFlow(QtW.QListView.Flow.TopToBottom)
         frame_list.setWrapping(False)
-        frame_list.setMovement(QtW.QListView.Movement.Static)
+        frame_list.setMovement(QtW.QListView.Movement.Snap)
         frame_list.setResizeMode(QtW.QListView.ResizeMode.Adjust)
 
         # Thumbnail size
@@ -678,10 +687,10 @@ class SpriteEditor(QtW.QWidget):
 
         # Establish drag-and-drop
         frame_list.setSortingEnabled(False)
-        frame_list.setDragDropMode(QtW.QAbstractItemView.DragDropMode.NoDragDrop)
+        frame_list.setDragDropMode(QtW.QAbstractItemView.DragDropMode.InternalMove)
         frame_list.setDefaultDropAction(Qt.DropAction.MoveAction)
-        frame_list.setDragEnabled(False)
-        frame_list.setAcceptDrops(False)
+        frame_list.setDragEnabled(True)
+        frame_list.setAcceptDrops(True)
         frame_list.setDragDropOverwriteMode(False)
         frame_list.setAutoScroll(True)
 
@@ -2179,7 +2188,6 @@ class SpriteEditor(QtW.QWidget):
         # Proper refresh (only if needed)
         if refresh:
             self.sprite_refresh_editing_ui()
-            self.render_sprite_frame()
 
     def sprite_edit_piece_property(self, field, value):
         if field not in self.piece_spinboxes and field not in self.piece_checkboxes:
