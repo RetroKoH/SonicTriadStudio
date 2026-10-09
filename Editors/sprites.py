@@ -207,9 +207,9 @@ class SpriteEditor(QtW.QWidget):
         self.btn_frame_erase = create_pushbutton("Erase Frame and Tiles", width=125,
             tooltip="Delete the current frame, and its tiles", enabled=False)
         self.btn_piece_add = create_pushbutton("Add Piece", tooltip="Add a piece to the current frame",
-            enabled=False)
-        self.btn_piece_remove = create_pushbutton("Remove Pieces", width=85,
-            tooltip="Remove the selected pieces", enabled=False)
+            on_clicked=self.sprite_add_piece, enabled=False)
+        self.btn_piece_remove = create_pushbutton("Remove Pieces", width=85, tooltip="Remove the selected pieces",
+            on_clicked=self.sprite_remove_pieces, enabled=False)
         self.index_label = create_label("Piece Properties", object_name="infoLabel")
 
         # ui_build_piece_list()
@@ -676,6 +676,7 @@ class SpriteEditor(QtW.QWidget):
         # Frame name input
         frame_controls.addWidget(self.frame_name_input)
         self.frame_name_input.setEnabled(False)
+        self.frame_name_input.editingFinished.connect(self._on_sprite_frame_label_changed)
 
         frame_controls.addStretch()
         map_editor.addLayout(frame_controls)
@@ -1305,7 +1306,6 @@ class SpriteEditor(QtW.QWidget):
 
         return config
 
-
     def file_confirm_overwrites(self, paths):
         """
         Confirm replacement of existing files at changed save assignments.
@@ -1857,6 +1857,171 @@ class SpriteEditor(QtW.QWidget):
         """
         self.sprite_refresh_frame_name()
         self.sprite_clear_selection()
+
+    # --------------------------------------------------
+    # Sprite: Frame Functions
+    # --------------------------------------------------
+    # Add Frame and Clone Frame call this function
+    def sprite_new_frame(self, name, pieces):
+        new_index = len(self.map_frames)
+
+        # Keep frame data and names aligned
+        self.map_frames.append(pieces)
+        self.frame_labels.append(name)
+
+        # Update the range and selection together, then refresh
+        was_blocked = self.frame_spinbox.blockSignals(True)
+        try:
+            self.frame_spinbox.setRange(0, new_index)
+            self.frame_spinbox.setValue(new_index)
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        self.piece_controls_state = None
+        self._on_sprite_frame_changed(refresh_thumbnails=True)
+
+    def sprite_add_frame(self):
+        # Commit any pending name edit before changing frames
+        self._on_sprite_frame_label_changed()
+
+        # Assign a default name
+        name_number = len(self.map_frames)
+        name = f"Frame_{name_number}"
+
+        while name in self.frame_labels:
+            name_number += 1
+            name = f"Frame_{name_number}"
+
+        # Add brand new frame to sprite
+        self.sprite_new_frame(name, [])
+
+    def sprite_clone_frame(self):
+        frame_index = self.frame_spinbox.value()
+
+        if not (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        ):
+            return
+
+        # Commit any pending name edit before changing frames
+        self._on_sprite_frame_label_changed()
+
+        # Find an unused copy name
+        base_name = f"{self.frame_labels[frame_index]}_Copy"
+        name = base_name
+        copy_number = 2
+
+        # Avoid duplicate ASM frame labels
+        while name in self.frame_labels:
+            name = f"{base_name}{copy_number}"
+            copy_number += 1
+
+        # Clone the frame and its pieces (not the art tiles)
+        pieces = deepcopy(self.map_frames[frame_index])
+        self.sprite_new_frame(name, pieces)
+
+    def sprite_remove_frame(self):
+        frame_index = self.frame_spinbox.value()
+
+        if not (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        ):
+            return
+
+        # Keep frame data and names aligned
+        del self.map_frames[frame_index]
+        del self.frame_labels[frame_index]
+
+        last_index = max(0, len(self.map_frames) - 1)
+        next_index = min(frame_index, last_index)
+
+        was_blocked = self.frame_spinbox.blockSignals(True)
+        try:
+            self.frame_spinbox.setRange(0, last_index)
+            self.frame_spinbox.setValue(next_index)
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        self.piece_controls_state = None
+        self.on_sprite_frame_changed(refresh_thumbnails=True)
+
+    def _on_sprite_frame_label_changed(self):
+        frame_index = self.frame_spinbox.value()
+
+        # Nothing to rename unless both the frame and its label exist
+        if not (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        ):
+            self.sprite_refresh_frame_name()
+            return
+
+        name = self.frame_name_input.text().strip()
+
+        # Blank input leaves the stored name unchanged
+        if name:
+            self.frame_labels[frame_index] = name
+
+        # Display the accepted name, or restore the previous one
+        self.sprite_refresh_frame_name()
+
+        # Update only this frame's caption
+        #self.framelist_refresh(frame_index=frame_index)
+
+    # --------------------------------------------------
+    # Sprite: Piece Functions
+    # --------------------------------------------------
+    def sprite_add_piece(self):
+        frame_index = self.frame_spinbox.value()
+
+        if not 0 <= frame_index < len(self.map_frames):
+            return
+
+        self.sprite_clear_selection(refresh=False)
+        pieces = self.map_frames[frame_index]
+
+        # For now, append a new 1×1 piece
+        pieces.append({
+            "x": 0,
+            "y": 0,
+            "tile": 0,
+            "width": 1,
+            "height": 1,
+            "palette": 0,
+            "x_flip": False,
+            "y_flip": False,
+            "priority": False
+        })
+
+        # Select the new piece in both the list and viewer
+        new_index = len(pieces) - 1
+        self.selected_pieces = {new_index}
+        self.piece_controls_state = None
+
+        # Create the table row before scrolling to it
+        self.sprite_refresh_editing_ui()
+        #self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
+        self.render_sprite_frame()
+        self.piece_list_table.scrollToItem(self.piece_list_table.item(new_index, 0))
+
+    def sprite_remove_pieces(self):
+        selected = self.sprite_get_selected_pieces()
+
+        if not selected:
+            return
+
+        pieces = self.map_frames[self.frame_spinbox.value()]
+
+        # Delete backward so earlier indices remain valid.
+        for index, _ in reversed(selected):
+            del pieces[index]
+
+        self.piece_controls_state = None
+        self.sprite_clear_selection()
+        #self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
+        self.render_sprite_frame()
 
     # --------------------------------------------------
     # Art File Entries
