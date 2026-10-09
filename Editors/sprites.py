@@ -9,7 +9,7 @@ from copy import deepcopy
 
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QEvent, QObject, QPoint, QRect, QSize
-from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap, QIcon
 
 from constants import PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
 from AssetIO.art import decode_art, encode_art
@@ -20,6 +20,7 @@ from Rendering.sprites import SpriteRenderer
 from UI.collapse_panel import CollapsiblePanel
 from UI.color_box import MiniColorBox
 from UI.file_toolbar import create_file_toolbar
+from UI.frame_list import SpriteFrameList
 from UI.md_color import ColorLibrary
 from UI.widgets import (
     create_checkbox,
@@ -128,9 +129,10 @@ class SpriteEditor(QtW.QWidget):
         self.spr_file_group = CollapsiblePanel("Sprite Data and Files",
             tooltip="Expand or collapse the file manager")
         self.btn_toggle_filemanager = self.spr_file_group.toggle_button
-        self.vram_spinbox = create_spinbox(minimum=0, maximum=2047,
-            display_base=16, prefix="$", width=50, tooltip="Starting VRAM Tile Index (Hex)")
-        self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3, width=40, tooltip="Base Palette Line")
+        self.vram_spinbox = create_spinbox(minimum=0, maximum=2047, display_base=16, prefix="$",
+            width=50, tooltip="Starting VRAM Tile Index (Hex)", on_value_changed=self.sprite_refresh_previews)
+        self.sprpal_spinbox = create_spinbox(minimum=0, maximum=3,
+            width=40, tooltip="Base Palette Line", on_value_changed=self.sprite_refresh_previews)
         self.btn_clear_spritedata = create_pushbutton("Clear Data", tooltip="Clear the current sprite data",
             on_clicked=self.file_sprite_clear)
         self.filemanager_tabs = QtW.QTabWidget()
@@ -191,17 +193,18 @@ class SpriteEditor(QtW.QWidget):
             width=110, tooltip="Remove all unused tiles", enabled=False)
 
         # ui_build_sprite_viewer()
-        self.sprite_frame_list = QtW.QListWidget()
+        self.sprite_frame_list = SpriteFrameList()
 
         # ui_build_map_editor()
         self.map_edit_box = QtW.QGroupBox()
         self.frame_spinbox = create_spinbox(minimum=0, maximum=0, on_value_changed=self._on_sprite_frame_changed)
         self.frame_name_input = create_lineedit(tooltip="Name of the mapping frame (in ASM files)")
-        self.btn_frame_add = create_pushbutton("Add Frame", tooltip="Add a frame", enabled=False)
-        self.btn_frame_remove = create_pushbutton("Remove Frame", width=85, tooltip="Remove the current frame",
-            enabled=False)
+        self.btn_frame_add = create_pushbutton("Add Frame",
+            tooltip="Add a frame", on_clicked=self.sprite_add_frame, enabled=False)
+        self.btn_frame_remove = create_pushbutton("Remove Frame", width=85,
+            tooltip="Remove the current frame", on_clicked=self.sprite_remove_frame, enabled=False)
         self.btn_frame_copy = create_pushbutton("Copy Frame", width=85,
-            tooltip="Duplicate the current mapping frame", enabled=False)
+            tooltip="Duplicate the current mapping frame", on_clicked=self.sprite_clone_frame, enabled=False)
         self.btn_frame_clone = create_pushbutton("Clone Frame and Tiles", width=125,
             tooltip="Clone the current frame, and its tiles", enabled=False)
         self.btn_frame_erase = create_pushbutton("Erase Frame and Tiles", width=125,
@@ -595,6 +598,8 @@ class SpriteEditor(QtW.QWidget):
 
         editing_layout.addWidget(self.editing_tabs, stretch=2)
 
+        self.editing_tabs.currentChanged.connect(self.framelist_refresh)
+
         return editing_panel
 
     def ui_build_palette_preview(self):
@@ -651,6 +656,7 @@ class SpriteEditor(QtW.QWidget):
 
     def ui_build_sprite_viewer(self):
         # List of frame thumbnails
+        self.frame_thumbnail_keys = []
         frame_list = self.sprite_frame_list
 
         frame_list.setViewMode(QtW.QListView.ViewMode.IconMode)
@@ -670,12 +676,20 @@ class SpriteEditor(QtW.QWidget):
         frame_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         frame_list.setTextElideMode(Qt.TextElideMode.ElideRight)
 
+        # Establish drag-and-drop
         frame_list.setSortingEnabled(False)
         frame_list.setDragDropMode(QtW.QAbstractItemView.DragDropMode.NoDragDrop)
+        frame_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         frame_list.setDragEnabled(False)
         frame_list.setAcceptDrops(False)
+        frame_list.setDragDropOverwriteMode(False)
+        frame_list.setAutoScroll(True)
 
-        #frame_list.viewport().installEventFilter(self)
+        frame_list.frameMoveRequested.connect(self.sprite_move_frame)
+
+        frame_list.currentRowChanged.connect(self.on_framelist_selection_changed)
+
+        frame_list.viewport().installEventFilter(self)
         return frame_list
 
     def ui_build_map_editor(self):
@@ -1580,299 +1594,10 @@ class SpriteEditor(QtW.QWidget):
         # Refresh controls and previews after clearing the data
         self.sprite_refresh_editing_ui()
         self.render_art_tiles()
-        #self.sprite_refresh_previews() # Refresh canvas AND thumbnails
+        self.sprite_refresh_previews() # Refresh canvas AND thumbnails
 
         if clear_file_manager:
             self.filemanager_clear()
-
-    def sprite_refresh_frame_name(self):
-        frame_index = self.frame_spinbox.value()
-        has_frame = (0 <= frame_index < len(self.map_frames)
-            and frame_index < len(self.frame_labels))
-
-        # Change label text box to that of the new frame's label (or blank if there is no frame)
-        self.frame_name_input.setEnabled(has_frame)
-        self.frame_name_input.setText(self.frame_labels[frame_index] if has_frame else "")
-
-    def sprite_get_selected_pieces(self):
-        frame_index = self.frame_spinbox.value()
-
-        if not 0 <= frame_index < len(self.map_frames):
-            return []
-
-        pieces = self.map_frames[frame_index]
-
-        return [
-            (index, pieces[index])
-            for index in sorted(self.selected_pieces)
-            if 0 <= index < len(pieces)
-        ]
-
-    def sprite_refresh_editing_ui(self):
-        """
-        Refresh list contents, selection, and property controls in order.
-        """
-        self.sprite_refresh_piece_list()
-        self.sprite_sync_piece_list_selection()
-        self.sprite_refresh_piece_controls()
-
-    def sprite_refresh_piece_list(self):
-        """
-        Update piece-list contents when the frame or displayed names change.
-        """
-        table = self.piece_list_table
-        frame_index = self.frame_spinbox.value()
-
-        if 0 <= frame_index < len(self.map_frames):
-            pieces = self.map_frames[frame_index]
-        else:
-            pieces = []
-
-        # Remove selection indices that no longer exist
-        self.selected_pieces.intersection_update(range(len(pieces)))
-
-        # Took names out of the enum loop below
-        names = tuple(
-            str(piece.get("name") or piece.get("label") or f"Piece {row}")
-            for row, piece in enumerate(pieces)
-        )
-
-        # Position, appearance, and selection do not affect list contents
-        state = (frame_index, names)
-        if state == self.piece_list_state:
-            return
-
-        was_blocked = table.blockSignals(True)
-
-        try:
-            table.setRowCount(len(names))
-
-            for row, name in enumerate(names):
-                item = table.item(row, 0)
-
-                if item is None:
-                    item = QtW.QTableWidgetItem()
-                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                    table.setItem(row, 0, item)
-
-                if item.text() != name:
-                    item.setText(name)
-
-                item.setToolTip(name)
-
-                # Match the zero-based indices used by the editor
-                if table.verticalHeaderItem(row) is None:
-                    table.setVerticalHeaderItem(row, QtW.QTableWidgetItem(str(row)))
-
-        finally:
-            table.blockSignals(was_blocked)
-
-        self.piece_list_state = state
-
-    def sprite_sync_piece_list_selection(self):
-        """
-        Match the table selection to the selected sprite pieces.
-        """
-        table = self.piece_list_table
-        table_selection = {
-            index.row()
-            for index in table.selectionModel().selectedRows()
-        }
-
-        if table_selection == self.selected_pieces:
-            return
-
-        was_blocked = table.blockSignals(True)
-
-        try:
-            table.clearSelection()
-
-            # Sync table selection to piece(s) selected on view
-            for row in sorted(self.selected_pieces):
-                table.setRangeSelected(
-                    QtW.QTableWidgetSelectionRange(row, 0, row, 0),
-                    True
-                )
-
-        finally:
-            table.blockSignals(was_blocked)
-
-    def sprite_piece_list_selection_changed(self):
-        self.selected_pieces = {index.row() for index in self.piece_list_table.selectionModel().selectedRows()}
-
-        self.piece_drag = None
-        self.hovered_piece = None
-        #self.sprite_end_box_select()
-
-        # Update property panel and canvas
-        self.sprite_refresh_piece_controls()
-        self.render_sprite_frame()
-
-    def sprite_refresh_piece_controls(self):
-        selected = self.sprite_get_selected_pieces()
-        has_selection = bool(selected)
-
-        # Disable property spinboxes when nothing is selected
-        for spinbox in self.piece_spinboxes.values():
-            spinbox.setEnabled(has_selection)
-
-        # Same with property checkboxes
-        for checkbox in self.piece_checkboxes.values():
-            checkbox.setEnabled(has_selection)
-
-        # Update when buttons are enabled based on piece change
-        frame_index = self.frame_spinbox.value()
-
-        self.btn_piece_add.setEnabled(0 <= frame_index < len(self.map_frames))
-        self.btn_piece_remove.setEnabled(bool(selected))
-
-        has_frames = (
-            0 <= frame_index < len(self.map_frames)
-            and frame_index < len(self.frame_labels)
-        )
-        self.btn_frame_remove.setEnabled(has_frames)
-        self.btn_frame_clone.setEnabled(has_frames)
-
-        # Include selection identity and property values
-        state = (
-            self.frame_spinbox.value(),
-            tuple(
-                (index,
-                    tuple(
-                        piece[field]
-                        for field in self.piece_spinboxes
-                    ),
-                    tuple(
-                        bool(piece.get(field, False))
-                        for field in self.piece_checkboxes
-                    ),
-                )
-                for index, piece in selected
-            ),
-        )
-
-        if state == self.piece_controls_state:
-            return
-
-        self.piece_controls_state = state
-        self.index_label.setEnabled(bool(selected))
-
-        if selected:
-            index, reference_piece = selected[0]
-
-            title = f"Piece {index}"
-            if len(selected) > 1:
-                title += f" — {len(selected)} selected"
-
-            self.index_label.setText(title)
-        else:
-            reference_piece = None
-            self.index_label.setText("Piece Properties")
-
-        # Updating the UI must not write values back into the data
-        for field, spinbox in self.piece_spinboxes.items():
-            was_blocked = spinbox.blockSignals(True)
-
-            try:
-                if reference_piece is None:
-                    spinbox.setValue(spinbox.minimum())
-                    spinbox.clear()
-                else:
-                    spinbox.setValue(reference_piece[field])
-            finally:
-                spinbox.blockSignals(was_blocked)
-
-        for field, checkbox in self.piece_checkboxes.items():
-            values = {
-                bool(piece.get(field, False))
-                for _, piece in selected
-            }
-            mixed = len(values) > 1
-
-            was_blocked = checkbox.blockSignals(True)
-
-            try:
-                checkbox.setTristate(mixed)
-
-                if mixed:
-                    checkbox.setCheckState(
-                        Qt.CheckState.PartiallyChecked
-                    )
-                else:
-                    checkbox.setChecked(True in values)
-            finally:
-                checkbox.blockSignals(was_blocked)
-
-    def sprite_edit_piece_property(self, field, value):
-        if field not in self.piece_spinboxes and field not in self.piece_checkboxes:
-            return
-
-        selected = self.sprite_get_selected_pieces()
-        if not selected:
-            return
-
-        changed = False
-
-        if field in ("x", "y"):
-            # Position edits move the group by the same distance
-            reference_piece = selected[0][1]
-            delta = int(value) - reference_piece[field]
-
-            spinbox = self.piece_spinboxes[field]
-
-            min_delta = max(spinbox.minimum() - piece[field] for _, piece in selected)
-            max_delta = min(spinbox.maximum() - piece[field] for _, piece in selected)
-
-            # Keep the entire group within the editing limits
-            if min_delta <= max_delta:
-                delta = max(min_delta, min(max_delta, delta))
-            else:
-                delta = 0
-
-            if delta:
-                for _, piece in selected:
-                    piece[field] += delta
-                changed = True
-
-        else:
-            if field in self.piece_checkboxes:
-                value = bool(value)
-            else:
-                value = int(value)
-
-            for _, piece in selected:
-                if piece.get(field) != value:
-                    piece[field] = value
-                    changed = True
-
-        # Restore displayed values even if an edit was limited or rejected
-        self.piece_controls_state = None
-        self.sprite_refresh_piece_controls()
-
-        if changed:
-            self.render_sprite_frame()
-
-    def sprite_clear_selection(self, *, refresh=True):
-        """
-        Clear selection and mouse interactions, optionally updating the UI.
-        """
-        self.selected_pieces.clear()
-        self.piece_drag = None
-        self.hovered_piece = None
-        #self.sprite_end_box_select()
-
-        # Proper refresh (only if needed)
-        if refresh:
-            self.sprite_refresh_editing_ui()
-            self.render_sprite_frame()
-
-    def _on_sprite_frame_changed(self, *, refresh_thumbnails=False):
-        """
-        Update frame controls and canvas.
-        Also refresh thumbnails if needed.
-        """
-        self.sprite_refresh_frame_name()
-        self.sprite_clear_selection()
 
 
     # --------------------------------------------------
@@ -1971,9 +1696,8 @@ class SpriteEditor(QtW.QWidget):
 
         pieces = self.map_frames[frame_index]
 
-        # Renderer draws later pieces overtop earlier pieces
-        # Search backward to select the last-drawn matching piece
-        for index in range(len(pieces) - 1, -1, -1):
+        # Lower indices render on top, so check them first.
+        for index, piece in enumerate(pieces):
             piece = pieces[index]
 
             left = piece["x"]
@@ -2112,17 +1836,13 @@ class SpriteEditor(QtW.QWidget):
 
         if changed:
             self.sprite_refresh_piece_controls()
-            #self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
-            self.render_sprite_frame()
-
-    def sprite_refresh_selection_ui(self):
-        """
-        Synchronize selected rows and update piece properties.
-        """
-        self.sprite_sync_piece_list_selection()
-        self.sprite_refresh_piece_controls()
+            self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
 
     def eventFilter(self, a0: 'QObject|None', a1: 'QEvent|None') -> bool:
+        # For sprite frame list when resizing
+        if a0 is self.sprite_frame_list.viewport() and a1.type() == QEvent.Type.Resize:
+            self.framelist_resize()
+
         if a0 is self.sprite_label:
             event_type = a1.type()
 
@@ -2258,7 +1978,57 @@ class SpriteEditor(QtW.QWidget):
             self.frame_spinbox.blockSignals(was_blocked)
 
         self.piece_controls_state = None
-        self.on_sprite_frame_changed(refresh_thumbnails=True)
+        self._on_sprite_frame_changed(refresh_thumbnails=True)
+
+    def sprite_move_frame(self, old_index, new_index):
+        frame_count = len(self.map_frames)
+
+        if not (
+            len(self.frame_labels) == frame_count
+            and 0 <= old_index < frame_count
+            and 0 <= new_index < frame_count
+        ):
+            return
+
+        if old_index == new_index:
+            return
+
+        # Commit a pending name edit before changing frame order
+        self._on_sprite_frame_label_changed()
+
+        frame = self.map_frames.pop(old_index)
+        name = self.frame_labels.pop(old_index)
+
+        self.map_frames.insert(new_index, frame)
+        self.frame_labels.insert(new_index, name)
+
+        # Entries were associated with the old indices
+        self.frame_thumbnail_keys = [None] * frame_count
+
+        was_blocked = self.frame_spinbox.blockSignals(True)
+
+        try:
+            self.frame_spinbox.setValue(new_index)
+
+        finally:
+            self.frame_spinbox.blockSignals(was_blocked)
+
+        self.piece_controls_state = None
+        self._on_sprite_frame_changed(refresh_thumbnails=True)
+
+    def _on_sprite_frame_changed(self, *, refresh_thumbnails=False):
+        """
+        Update frame controls and canvas.
+        Also refresh thumbnails if needed.
+        """
+        self.sprite_refresh_frame_name()
+        self.sprite_clear_selection()
+        self.render_sprite_frame()
+
+        if refresh_thumbnails:
+            self.framelist_refresh()
+        else:
+            self.framelist_sync_selection()
 
     def _on_sprite_frame_label_changed(self):
         frame_index = self.frame_spinbox.value()
@@ -2281,7 +2051,17 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_refresh_frame_name()
 
         # Update only this frame's caption
-        #self.framelist_refresh(frame_index=frame_index)
+        self.framelist_refresh(frame_index=frame_index)
+
+    def sprite_refresh_frame_name(self):
+        frame_index = self.frame_spinbox.value()
+        has_frame = (0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels))
+
+        # Change label text box to that of the new frame's label (or blank if there is no frame)
+        self.frame_name_input.setEnabled(has_frame)
+        self.frame_name_input.setText(self.frame_labels[frame_index] if has_frame else "")
+
 
     # --------------------------------------------------
     # Sprite: Piece Functions
@@ -2315,8 +2095,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Create the table row before scrolling to it
         self.sprite_refresh_editing_ui()
-        #self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
-        self.render_sprite_frame()
+        self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
         self.piece_list_table.scrollToItem(self.piece_list_table.item(new_index, 0))
 
     def sprite_remove_pieces(self):
@@ -2333,8 +2112,493 @@ class SpriteEditor(QtW.QWidget):
 
         self.piece_controls_state = None
         self.sprite_clear_selection()
-        #self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
+        self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
+
+    def sprite_get_selected_pieces(self):
+        frame_index = self.frame_spinbox.value()
+
+        if not 0 <= frame_index < len(self.map_frames):
+            return []
+
+        pieces = self.map_frames[frame_index]
+
+        return [
+            (index, pieces[index])
+            for index in sorted(self.selected_pieces)
+            if 0 <= index < len(pieces)
+        ]
+
+    def sprite_sync_piece_list_selection(self):
+        """
+        Match the table selection to the selected sprite pieces.
+        """
+        table = self.piece_list_table
+        table_selection = {
+            index.row()
+            for index in table.selectionModel().selectedRows()
+        }
+
+        if table_selection == self.selected_pieces:
+            return
+
+        was_blocked = table.blockSignals(True)
+
+        try:
+            table.clearSelection()
+
+            # Sync table selection to piece(s) selected on view
+            for row in sorted(self.selected_pieces):
+                table.setRangeSelected(
+                    QtW.QTableWidgetSelectionRange(row, 0, row, 0),
+                    True
+                )
+
+        finally:
+            table.blockSignals(was_blocked)
+
+    def sprite_piece_list_selection_changed(self):
+        self.selected_pieces = {index.row() for index in self.piece_list_table.selectionModel().selectedRows()}
+
+        self.piece_drag = None
+        self.hovered_piece = None
+        self.sprite_end_box_select()
+
+        # Update property panel and canvas
+        self.sprite_refresh_piece_controls()
         self.render_sprite_frame()
+
+    def sprite_clear_selection(self, *, refresh=True):
+        """
+        Clear selection and mouse interactions, optionally updating the UI.
+        """
+        self.selected_pieces.clear()
+        self.piece_drag = None
+        self.hovered_piece = None
+        self.sprite_end_box_select()
+
+        # Proper refresh (only if needed)
+        if refresh:
+            self.sprite_refresh_editing_ui()
+            self.render_sprite_frame()
+
+    def sprite_edit_piece_property(self, field, value):
+        if field not in self.piece_spinboxes and field not in self.piece_checkboxes:
+            return
+
+        selected = self.sprite_get_selected_pieces()
+        if not selected:
+            return
+
+        changed = False
+
+        if field in ("x", "y"):
+            # Position edits move the group by the same distance
+            reference_piece = selected[0][1]
+            delta = int(value) - reference_piece[field]
+
+            spinbox = self.piece_spinboxes[field]
+
+            min_delta = max(spinbox.minimum() - piece[field] for _, piece in selected)
+            max_delta = min(spinbox.maximum() - piece[field] for _, piece in selected)
+
+            # Keep the entire group within the editing limits
+            if min_delta <= max_delta:
+                delta = max(min_delta, min(max_delta, delta))
+            else:
+                delta = 0
+
+            if delta:
+                for _, piece in selected:
+                    piece[field] += delta
+                changed = True
+
+        else:
+            if field in self.piece_checkboxes:
+                value = bool(value)
+            else:
+                value = int(value)
+
+            for _, piece in selected:
+                if piece.get(field) != value:
+                    piece[field] = value
+                    changed = True
+
+        # Restore displayed values even if an edit was limited or rejected
+        self.piece_controls_state = None
+        self.sprite_refresh_piece_controls()
+
+        if changed:
+            self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
+
+
+    # --------------------------------------------------
+    # Sprite: Refreshing
+    # --------------------------------------------------
+    def sprite_refresh_previews(self, *, frame_index=None):
+        """
+        Refresh the sprite canvas and requested frame thumbnail(s).
+        """
+        self.render_sprite_frame()
+        self.framelist_refresh(frame_index=frame_index)
+
+    def sprite_refresh_selection_ui(self):
+        """
+        Synchronize selected rows and update piece properties.
+        """
+        self.sprite_sync_piece_list_selection()
+        self.sprite_refresh_piece_controls()
+
+    def sprite_refresh_editing_ui(self):
+        """
+        Refresh list contents, selection, and property controls in order.
+        """
+        self.sprite_refresh_piece_list()
+        self.sprite_sync_piece_list_selection()
+        self.sprite_refresh_piece_controls()
+
+    def sprite_refresh_piece_list(self):
+        """
+        Update piece-list contents when the frame or displayed names change.
+        """
+        table = self.piece_list_table
+        frame_index = self.frame_spinbox.value()
+
+        if 0 <= frame_index < len(self.map_frames):
+            pieces = self.map_frames[frame_index]
+        else:
+            pieces = []
+
+        # Remove selection indices that no longer exist
+        self.selected_pieces.intersection_update(range(len(pieces)))
+
+        # Took names out of the enum loop below
+        names = tuple(
+            str(piece.get("name") or piece.get("label") or f"Piece {row}")
+            for row, piece in enumerate(pieces)
+        )
+
+        # Position, appearance, and selection do not affect list contents
+        state = (frame_index, names)
+        if state == self.piece_list_state:
+            return
+
+        was_blocked = table.blockSignals(True)
+
+        try:
+            table.setRowCount(len(names))
+
+            for row, name in enumerate(names):
+                item = table.item(row, 0)
+
+                if item is None:
+                    item = QtW.QTableWidgetItem()
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                    table.setItem(row, 0, item)
+
+                if item.text() != name:
+                    item.setText(name)
+
+                item.setToolTip(name)
+
+                # Match the zero-based indices used by the editor
+                if table.verticalHeaderItem(row) is None:
+                    table.setVerticalHeaderItem(row, QtW.QTableWidgetItem(str(row)))
+
+        finally:
+            table.blockSignals(was_blocked)
+
+        self.piece_list_state = state
+
+    def sprite_refresh_piece_controls(self):
+        selected = self.sprite_get_selected_pieces()
+        has_selection = bool(selected)
+
+        # Disable property spinboxes when nothing is selected
+        for spinbox in self.piece_spinboxes.values():
+            spinbox.setEnabled(has_selection)
+
+        # Same with property checkboxes
+        for checkbox in self.piece_checkboxes.values():
+            checkbox.setEnabled(has_selection)
+
+        # Update when buttons are enabled based on piece change
+        frame_index = self.frame_spinbox.value()
+
+        self.btn_piece_add.setEnabled(0 <= frame_index < len(self.map_frames))
+        self.btn_piece_remove.setEnabled(bool(selected))
+
+        has_frames = (
+            0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels)
+        )
+        self.btn_frame_remove.setEnabled(has_frames)
+        self.btn_frame_copy.setEnabled(has_frames)
+
+        # Include selection identity and property values
+        state = (
+            self.frame_spinbox.value(),
+            tuple(
+                (index,
+                    tuple(
+                        piece[field]
+                        for field in self.piece_spinboxes
+                    ),
+                    tuple(
+                        bool(piece.get(field, False))
+                        for field in self.piece_checkboxes
+                    ),
+                )
+                for index, piece in selected
+            ),
+        )
+
+        if state == self.piece_controls_state:
+            return
+
+        self.piece_controls_state = state
+        self.index_label.setEnabled(bool(selected))
+
+        if selected:
+            index, reference_piece = selected[0]
+
+            title = f"Piece {index}"
+            if len(selected) > 1:
+                title += f" — {len(selected)} selected"
+
+            self.index_label.setText(title)
+        else:
+            reference_piece = None
+            self.index_label.setText("Piece Properties")
+
+        # Updating the UI must not write values back into the data
+        for field, spinbox in self.piece_spinboxes.items():
+            was_blocked = spinbox.blockSignals(True)
+
+            try:
+                if reference_piece is None:
+                    spinbox.setValue(spinbox.minimum())
+                    spinbox.clear()
+                else:
+                    spinbox.setValue(reference_piece[field])
+            finally:
+                spinbox.blockSignals(was_blocked)
+
+        for field, checkbox in self.piece_checkboxes.items():
+            values = {
+                bool(piece.get(field, False))
+                for _, piece in selected
+            }
+            mixed = len(values) > 1
+
+            was_blocked = checkbox.blockSignals(True)
+
+            try:
+                checkbox.setTristate(mixed)
+
+                if mixed:
+                    checkbox.setCheckState(
+                        Qt.CheckState.PartiallyChecked
+                    )
+                else:
+                    checkbox.setChecked(True in values)
+            finally:
+                checkbox.blockSignals(was_blocked)
+
+
+    # --------------------------------------------------
+    # Frame List Functions
+    # --------------------------------------------------
+    def framelist_refresh(self, *, frame_index=None):
+        """
+        Refresh a given frame's thumbnail and caption.
+        Refresh all frames if index is omitted.
+        """
+        frame_list = self.sprite_frame_list
+
+        # Refresh when the Sprites list tab is open
+        if self.editing_tabs.currentWidget() is not frame_list:
+            return
+
+        fields = ("x", "y", "tile", "width", "height",
+            "palette", "x_flip", "y_flip", "priority")
+
+        shared_key = (
+            self.art_preview_revision,
+            self.vram_spinbox.value(),
+            self.sprpal_spinbox.value(),
+            tuple(color.rgba() for color in self.palette_colors),
+            self.sprite_canvas_width,
+            self.sprite_canvas_height
+        )
+
+        was_blocked = frame_list.blockSignals(True) # Block signals
+
+        try:
+            # Rebuild the entries when frames are added or removed.
+            if frame_list.count() != len(self.map_frames):
+                frame_list.clear()
+                self.frame_thumbnail_keys = [None] * len(self.map_frames)
+
+                for _ in self.map_frames:
+                    # Add to the list, center-aligned
+                    item = QtW.QListWidgetItem()
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+                    frame_list.addItem(item)
+
+                self.framelist_resize()
+
+                # New list items all need thumbnails
+                frame_index = None
+
+            # Check only the requested frame unless a full refresh is needed
+            if frame_index is None:
+                indices = range(len(self.map_frames))
+            elif 0 <= frame_index < len(self.map_frames):
+                indices = (frame_index,)
+            else:
+                indices = ()
+
+            for index in indices:
+                pieces = self.map_frames[index]
+                item = frame_list.item(index)
+
+                name = (
+                    self.frame_labels[index]
+                    if index < len(self.frame_labels)
+                    else f"Frame_{index}"
+                )
+                text = f"{index}: {name}"
+
+                if item.text() != text:
+                    item.setText(text)
+                    item.setToolTip(text)
+
+                frame_key = tuple(
+                    tuple(piece.get(field) for field in fields)
+                    for piece in pieces
+                )
+                thumbnail_key = (shared_key, frame_key)
+
+                if self.frame_thumbnail_keys[index] == thumbnail_key:
+                    continue
+
+                image = self.sprite_build_frame_image(index)
+
+                # Find the rectangle occupied by this frame's pieces
+                bounds = QRect()
+                center_x = self.sprite_canvas_width // 2
+                center_y = self.sprite_canvas_height // 2
+
+                for piece in pieces:
+                    piece_rect = QRect(
+                        center_x + piece["x"],
+                        center_y + piece["y"],
+                        piece["width"] * 8,
+                        piece["height"] * 8,
+                    )
+                    bounds = bounds.united(piece_rect)
+
+                if not bounds.isEmpty():
+                    # Include a small margin and stay within the rendered image
+                    bounds = bounds.adjusted(-2, -2, 2, 2)
+                    bounds = bounds.intersected(image.rect())
+
+                    if not bounds.isEmpty():
+                        image = image.copy(bounds)
+
+                # Enlarge to 2x, reducing only when necessary to fit the icon
+                thumbnail = image.scaled(
+                    min(image.width() * 2, frame_list.iconSize().width()),
+                    min(image.height() * 2, frame_list.iconSize().height()),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.FastTransformation,
+                )
+
+                # Fixed-size image area, with sprite frame centered inside
+                preview = QPixmap(frame_list.iconSize())
+                preview.fill(Qt.GlobalColor.transparent)
+
+                # Center the thumbnail inside its fixed-size preview box
+                _tx = (preview.width() - thumbnail.width()) // 2
+                _ty = (preview.height() - thumbnail.height()) // 2
+
+                # Draw the frame thumbnail
+                painter = QPainter(preview)
+                painter.drawImage(_tx, _ty, thumbnail)
+
+                # Outline the sprite bounds, including the crop margin
+                if pieces and not bounds.isEmpty():
+                    painter.setPen(QColor(150, 150, 150))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRect(_tx, _ty,
+                        thumbnail.width() - 1, thumbnail.height() - 1)
+
+                painter.end()
+
+                # Set mapping frame as icon
+                item.setIcon(QIcon(preview))
+                self.frame_thumbnail_keys[index] = thumbnail_key
+
+            self.framelist_sync_selection()
+
+        finally:
+            frame_list.blockSignals(was_blocked) # Restore signals
+
+    def on_framelist_selection_changed(self, row):
+        if not 0 <= row < len(self.map_frames):
+            return
+
+        self.frame_spinbox.setValue(row)
+
+    def framelist_sync_selection(self):
+        """
+        Match the highlighted list item to the current frame.
+        """
+        frame_list = self.sprite_frame_list
+
+        # Hidden lists catch up when their tab opens
+        if self.editing_tabs.currentWidget() is not frame_list:
+            return
+
+        # Wait for the list to be rebuilt after structural changes
+        if frame_list.count() != len(self.map_frames):
+            return
+
+        selected_row = self.frame_spinbox.value() if self.map_frames else -1
+
+        if frame_list.currentRow() == selected_row:
+            return
+
+        was_blocked = frame_list.blockSignals(True) # Block signals
+
+        try:
+            frame_list.setCurrentRow(selected_row)
+
+            if selected_row >= 0:
+                frame_list.scrollToItem(frame_list.item(selected_row))
+
+        finally:
+            frame_list.blockSignals(was_blocked) # Restore signals
+
+    def framelist_resize(self):
+        frame_list = self.sprite_frame_list
+
+        # Establish thumbnail and caption height
+        image_height = frame_list.iconSize().height()
+        caption_height = frame_list.fontMetrics().height() + 8
+
+        # Set size
+        item_size = QSize(max(1, frame_list.viewport().width()), image_height + caption_height)
+
+        if frame_list.gridSize() != item_size:
+            frame_list.setGridSize(item_size)
+
+        for index in range(frame_list.count()):
+            item = frame_list.item(index)
+
+            if item.sizeHint() != item_size:
+                item.setSizeHint(item_size)
+
 
     # --------------------------------------------------
     # Art File Entries
@@ -2666,7 +2930,7 @@ class SpriteEditor(QtW.QWidget):
         # Whole-build loading can defer refreshing
         if refresh:
             self.render_art_tiles()
-            self.render_sprite_frame()
+            self.sprite_refresh_previews() # Refresh canvas AND thumbnails
 
     # --------------------------------------------------
     # Mapping File Entries
@@ -2994,7 +3258,7 @@ class SpriteEditor(QtW.QWidget):
         # Sprite build loading can defer rendering
         if refresh:
             self.render_art_tiles()     # Refresh VRAM
-            self.render_sprite_frame()
+            self.sprite_refresh_previews() # Refresh canvas AND thumbnails
 
         return True
 
@@ -3294,8 +3558,8 @@ class SpriteEditor(QtW.QWidget):
             self.palette_boxes[col_idx].set_color(new_color)
             # Refresh VRAM after loading new palette
             self.render_art_tiles()
-            # Refresh the active frame with the new colors
-            self.render_sprite_frame()
+            # Refresh frame window and thumbnails with new color
+            self.sprite_refresh_previews()
 
     def palette_get_file_layout(self):
         """
