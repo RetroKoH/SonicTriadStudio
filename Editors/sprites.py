@@ -8,7 +8,7 @@ from pathlib import Path
 from copy import deepcopy
 
 import PyQt6.QtWidgets as QtW
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QEvent, QObject, QPoint, QRect, QSize
 from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
 
 from constants import PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
@@ -346,12 +346,27 @@ class SpriteEditor(QtW.QWidget):
         hint_font.setPointSizeF(max(8.0, hint_font.pointSizeF() - 1.0))
         preview_hint_label.setFont(hint_font)
 
+        # Scrollable Sprite Viewer
         self.sprite_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.sprite_label.setMargin(0)
         self.sprite_label.setFrameShape(QtW.QFrame.Shape.NoFrame)
         self.sprite_label.setFixedSize(
             self.sprite_canvas_width * self.sprite_zoom,
             self.sprite_canvas_height * self.sprite_zoom)
+        self.sprite_label.setMouseTracking(True)
+        self.sprite_label.installEventFilter(self)  # install for click and drag mechanics
+
+        # Selection rectangle, positioned manually over the sprite canvas
+        # (To-Do: Color based on theme, or by preference)
+        self.selection_box = QtW.QFrame(self.sprite_label)
+        self.selection_box.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.selection_box.setStyleSheet("""
+            QFrame {
+                background-color: rgba(100, 180, 255, 45);
+                border: 1px solid rgba(100, 180, 255, 220);
+            }
+        """)
+        self.selection_box.hide()
 
         scroll_area = create_scrollarea(
             self.sprite_label, resizable=False, layout=sprite_viewer)
@@ -660,6 +675,7 @@ class SpriteEditor(QtW.QWidget):
         frame_list.setDragEnabled(False)
         frame_list.setAcceptDrops(False)
 
+        #frame_list.viewport().installEventFilter(self)
         return frame_list
 
     def ui_build_map_editor(self):
@@ -1857,6 +1873,303 @@ class SpriteEditor(QtW.QWidget):
         """
         self.sprite_refresh_frame_name()
         self.sprite_clear_selection()
+
+
+    # --------------------------------------------------
+    # Sprite: Control Functions
+    # --------------------------------------------------
+    def sprite_begin_box_select(self, position, additive):
+        frame_index = self.frame_spinbox.value()
+        if not 0 <= frame_index < len(self.map_frames):
+            return
+
+        self.hovered_piece = None
+
+        self.selection_drag = {
+            "frame": frame_index,
+            "origin": position.toPoint(),
+            "initial_selection": (self.selected_pieces.copy() if additive else set()),
+            "started": False
+        }
+
+    def sprite_update_box_select(self, position):
+        drag = self.selection_drag
+        if drag is None:
+            return
+
+        frame_index = drag["frame"]
+
+        if frame_index != self.frame_spinbox.value() or not 0 <= frame_index < len(self.map_frames):
+            self.sprite_end_box_select()
+            return
+
+        point = position.toPoint()
+
+        # Keep the rectangle within the sprite canvas
+        point = QPoint(
+            max(0, min(self.sprite_label.width() - 1, point.x())),
+            max(0, min(self.sprite_label.height() - 1, point.y())),
+        )
+
+        if not drag["started"]:
+            distance = (point - drag["origin"]).manhattanLength()
+
+            if distance < QtW.QApplication.startDragDistance():
+                return
+
+            drag["started"] = True
+
+        # Normalization allows dragging in any direction
+        selection_rect = QRect(drag["origin"], point).normalized()
+
+        self.selection_box.setGeometry(selection_rect)
+        self.selection_box.show()
+        self.selection_box.raise_()
+
+        center_x = self.sprite_canvas_width // 2
+        center_y = self.sprite_canvas_height // 2
+        zoom = self.sprite_zoom
+
+        intersecting = set()
+
+        for index, piece in enumerate(self.map_frames[frame_index]):
+            # Convert mapping bounds to displayed canvas coordinates
+            piece_rect = QRect(
+                (center_x + piece["x"]) * zoom,
+                (center_y + piece["y"]) * zoom,
+                piece["width"] * 8 * zoom,
+                piece["height"] * 8 * zoom,
+            )
+
+            if selection_rect.intersects(piece_rect):
+                intersecting.add(index)
+
+        selection = drag["initial_selection"] | intersecting
+
+        if selection != self.selected_pieces:
+            self.selected_pieces = selection
+            self.sprite_refresh_selection_ui()
+            self.render_sprite_frame()
+
+    def sprite_end_box_select(self):
+        self.selection_drag = None
+        self.selection_box.hide()
+
+    def sprite_mouse_to_mapping(self, position):
+        x = int(position.x() // self.sprite_zoom)
+        x -= self.sprite_canvas_width // 2
+
+        y = int(position.y() // self.sprite_zoom)
+        y -= self.sprite_canvas_height // 2
+
+        return x, y
+
+    def sprite_piece_at(self, x, y):
+        frame_index = self.frame_spinbox.value()
+        if not 0 <= frame_index < len(self.map_frames):
+            return None
+
+        pieces = self.map_frames[frame_index]
+
+        # Renderer draws later pieces overtop earlier pieces
+        # Search backward to select the last-drawn matching piece
+        for index in range(len(pieces) - 1, -1, -1):
+            piece = pieces[index]
+
+            left = piece["x"]
+            top = piece["y"]
+            width = piece["width"] * 8
+            height = piece["height"] * 8
+
+            if left <= x < left + width and top <= y < top + height:
+                return index
+
+        return None
+
+    def sprite_update_hover(self, position=None, *, redraw=True):
+        piece_index = None
+
+        if position is not None:
+            inside_canvas = (
+                    0 <= position.x() < self.sprite_label.width()
+                    and 0 <= position.y() < self.sprite_label.height()
+            )
+
+            if inside_canvas:
+                x, y = self.sprite_mouse_to_mapping(position)
+                piece_index = self.sprite_piece_at(x, y)
+
+        if piece_index != self.hovered_piece:
+            self.hovered_piece = piece_index
+
+            if redraw:
+                self.render_sprite_frame()
+
+    def sprite_begin_drag(self, position, modifiers):
+        x, y = self.sprite_mouse_to_mapping(position)
+        piece_index = self.sprite_piece_at(x, y)
+        ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+
+        # Clear everything pertaining to click/drag
+        self.piece_drag = None
+        self.sprite_end_box_select()
+
+        # Clicking empty space clears selection without Ctrl
+        # Also starts a potential box-selection gesture
+        if piece_index is None:
+            if not ctrl:
+                self.selected_pieces.clear()
+
+            self.sprite_begin_box_select(position, additive=ctrl)
+            self.sprite_refresh_selection_ui()
+            self.render_sprite_frame()
+            return
+
+        # Multi-select pieces
+        if ctrl:
+            if piece_index in self.selected_pieces:
+                # Ctrl-click removes this piece without starting a drag
+                self.selected_pieces.remove(piece_index)
+                self.sprite_refresh_selection_ui()
+                self.render_sprite_frame()
+                return
+
+            self.selected_pieces.add(piece_index)
+
+        elif piece_index not in self.selected_pieces:
+            # Clicking a new piece replaces the selection
+            self.selected_pieces = {piece_index}
+
+        # Clicking an already-selected piece preserves the group
+        frame_index = self.frame_spinbox.value()
+        pieces = self.map_frames[frame_index]
+
+        start_positions = {
+            index: (pieces[index]["x"], pieces[index]["y"])
+            for index in self.selected_pieces
+        }
+
+        # Contains the original position of every selected piece
+        self.piece_drag = (frame_index, x, y, start_positions)
+
+        self.sprite_refresh_selection_ui()
+        self.render_sprite_frame()
+
+    def sprite_drag_piece(self, position):
+        if self.piece_drag is None:
+            return
+
+        frame_index, mouse_x, mouse_y, start_positions = self.piece_drag
+
+        # Cancel if the current frame changed (Clear & Redraw)
+        if (
+            frame_index != self.frame_spinbox.value()
+            or not 0 <= frame_index < len(self.map_frames)
+        ):
+            # This removes any old selection outlines
+            self.sprite_clear_selection()
+            self.render_sprite_frame() # don't update thumbnails here
+            return
+
+        pieces = self.map_frames[frame_index]
+
+        # Cancel if the current frame's piece data has changed (Clear & Redraw)
+        if not start_positions or any(
+            not 0 <= index < len(pieces) for index in start_positions
+        ):
+            # This removes any old selection outlines
+            self.sprite_clear_selection()
+            self.render_sprite_frame() # don't update thumbnails here
+            return
+
+        x, y = self.sprite_mouse_to_mapping(position)
+        dx = x - mouse_x
+        dy = y - mouse_y
+
+        # Find the movement range that keeps every selected piece's
+        # position within our current -128..127 editing limits
+        min_dx = max(-128 - start_x for start_x, _ in start_positions.values())
+        max_dx = min(127 - start_x for start_x, _ in start_positions.values())
+        min_dy = max(-128 - start_y for _, start_y in start_positions.values())
+        max_dy = min(127 - start_y for _, start_y in start_positions.values())
+
+        if dx:
+            dx = max(min_dx, min(max_dx, dx)) if min_dx <= max_dx else 0
+        if dy:
+            dy = max(min_dy, min(max_dy, dy)) if min_dy <= max_dy else 0
+
+        changed = False     # re-render flag
+
+        for index, (start_x, start_y) in start_positions.items():
+            piece = pieces[index]
+            new_x = start_x + dx
+            new_y = start_y + dy
+
+            if (piece["x"], piece["y"]) != (new_x, new_y):
+                piece["x"] = new_x
+                piece["y"] = new_y
+                changed = True
+
+        if changed:
+            self.sprite_refresh_piece_controls()
+            #self.sprite_refresh_previews(frame_index=self.frame_spinbox.value()) # Refresh canvas AND thumbnails
+            self.render_sprite_frame()
+
+    def sprite_refresh_selection_ui(self):
+        """
+        Synchronize selected rows and update piece properties.
+        """
+        self.sprite_sync_piece_list_selection()
+        self.sprite_refresh_piece_controls()
+
+    def eventFilter(self, a0: 'QObject|None', a1: 'QEvent|None') -> bool:
+        if a0 is self.sprite_label:
+            event_type = a1.type()
+
+            if event_type in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonDblClick
+            ):
+                if a1.button() == Qt.MouseButton.LeftButton:
+                    # sprite_begin_drag redraws after changing selection
+                    self.sprite_update_hover(a1.position(), redraw=False)
+                    self.sprite_begin_drag(a1.position(), a1.modifiers())
+                    return True
+
+            elif event_type == QEvent.Type.MouseMove:
+                left_held = bool(a1.buttons() & Qt.MouseButton.LeftButton)
+
+                if left_held and self.selection_drag is not None:
+                    self.sprite_update_box_select(a1.position())
+
+                elif left_held and self.piece_drag is not None:
+                    self.sprite_drag_piece(a1.position())
+
+                else:
+                    self.piece_drag = None
+                    self.sprite_end_box_select()
+                    self.sprite_update_hover(a1.position())
+
+                return True
+
+            elif event_type == QEvent.Type.MouseButtonRelease:
+                if a1.button() == Qt.MouseButton.LeftButton:
+                    if self.selection_drag is not None:
+                        self.sprite_update_box_select(a1.position())
+                        self.sprite_end_box_select()
+                    else:
+                        # Apply the final position before ending the drag
+                        self.sprite_drag_piece(a1.position())
+
+                    self.piece_drag = None
+                    self.sprite_update_hover(a1.position())
+                    return True
+
+            elif event_type == QEvent.Type.Leave:
+                # Clear hover, but let an active drag continue
+                self.sprite_update_hover()
+
+        return super().eventFilter(a0, a1)
 
     # --------------------------------------------------
     # Sprite: Frame Functions
