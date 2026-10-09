@@ -72,17 +72,32 @@ class TriadApp(QtW.QMainWindow):
         header.setObjectName("headerLabel")
         dashboard.addWidget(header)
 
-        # Asset Tree
+        # LEFT PANEL: Asset Manager
         content = QtW.QHBoxLayout()
+        asset_panel = QtW.QWidget()
+        asset_panel.setFixedWidth(200)
+
+        asset_layout = QtW.QVBoxLayout(asset_panel)
+        asset_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Asset Filter Search
+        self.asset_search = QtW.QLineEdit()
+        self.asset_search.setPlaceholderText("Search Assets")
+        self.asset_search.setClearButtonEnabled(True)
+        self.asset_search.textChanged.connect(self.project_asset_filter)
+        asset_layout.addWidget(self.asset_search)
+
+        # Asset Tree
         self.asset_tree = QtW.QTreeWidget()
         self.asset_tree.setHeaderLabel("Assets")
-        self.asset_tree.setFixedWidth(240)
         self.asset_tree.setIndentation(20)
         self.asset_tree.setUniformRowHeights(True)
         self.asset_tree.setSortingEnabled(False)  # Preserve JSON order (for now)
         self.asset_tree.itemDoubleClicked.connect(self.project_asset_show_info)
-        content.addWidget(self.asset_tree, stretch=1)
+        asset_layout.addWidget(self.asset_tree, stretch=1)
+        content.addWidget(asset_panel)
 
+        # Project JSON Dropbox
         self.dropzone = DropWidget(self, "Drop Project JSON file here")
         self.dropzone.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.dropzone.setObjectName("dropZone")
@@ -194,6 +209,9 @@ class TriadApp(QtW.QMainWindow):
         # Show resource categories with all folders collapsed
         self.asset_tree.expandToDepth(-1)
 
+        # Refresh search (even if field is empty)
+        self.project_asset_filter(self.asset_search.text())
+
     def project_asset_show_info(self, item):
         """
         Show basic information for the double-clicked project asset.
@@ -254,6 +272,44 @@ class TriadApp(QtW.QMainWindow):
 
         self.asset_info_dialog.finished.connect(self.asset_info_dialog.deleteLater)
         self.asset_info_dialog.open()
+
+    def project_asset_filter(self, text):
+        """
+        Filter asset names and paths.
+        """
+        # Get text query, removing all case distinctions
+        query = text.strip().casefold()
+
+        def filter_item(item):
+            asset = item.data(0, Qt.ItemDataRole.UserRole)
+
+            # Empty search shows every item (Type to narrow down)
+            matches = not query
+
+            if query and isinstance(asset, dict):
+                name = item.text(0).casefold()
+                path = item.toolTip(0).casefold()
+                matches = query in name or query in path
+
+            # Check every child
+            child_matches = False
+
+            for _idx in range(item.childCount()):
+                if filter_item(item.child(_idx)):
+                    child_matches = True
+
+            # Hide item if it's filtered out
+            visible = matches or child_matches
+            item.setHidden(not visible)
+
+            # Expand folders with matching assets
+            if query and child_matches:
+                item.setExpanded(True)
+
+            return visible
+
+        for _idx in range(self.asset_tree.topLevelItemCount()):
+            filter_item(self.asset_tree.topLevelItem(_idx))
 
 class DropWidget(QtW.QLabel):
     def __init__(self, app, text=""):
