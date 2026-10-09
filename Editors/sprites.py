@@ -2796,7 +2796,7 @@ class SpriteEditor(QtW.QWidget):
 
                 # Require a populated source buffer
                 if not art_tiles:
-                    raise ValueError("No art tiles are loaded for this entry.")
+                    raise ValueError("Cannot save an empty art buffer.")
 
                 # Changed destinations may require overwrite confirmation
                 if source_path != path:
@@ -2916,6 +2916,8 @@ class SpriteEditor(QtW.QWidget):
     def art_update_tile_controls(self):
         """
         Enable optimization when mappings and source tiles are present.
+        """
+        ready = bool(self.map_frames) and any(row[4] for row in self.art_rows)
         self.arrange_tiles.setEnabled(ready)
         self.strip_tiles.setEnabled(ready)
 
