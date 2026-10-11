@@ -206,9 +206,8 @@ class SpriteEditor(QtW.QWidget):
         self.btn_frame_copy = create_pushbutton("Copy Frame", width=85,
             tooltip="Duplicate the current mapping frame", on_clicked=self.sprite_clone_frame, enabled=False)
         self.btn_frame_clone = create_pushbutton("Clone Frame and Tiles", width=125,
-            tooltip="Clone the current frame, and its tiles", enabled=False)
-        self.btn_frame_erase = create_pushbutton("Erase Frame and Tiles", width=125,
-            tooltip="Delete the current frame, and its tiles", enabled=False)
+            tooltip="Clone the current frame, and its tiles",
+            on_clicked=self.sprite_clone_frame_and_tiles, enabled=False)
         self.btn_piece_add = create_pushbutton("Add Piece", tooltip="Add a piece to the current frame",
             on_clicked=self.sprite_add_piece, enabled=False)
         self.btn_piece_remove = create_pushbutton("Remove Pieces", width=85, tooltip="Remove the selected pieces",
@@ -725,19 +724,18 @@ class SpriteEditor(QtW.QWidget):
 
         frame_buttons.addWidget(self.btn_frame_add)
         frame_buttons.addWidget(self.btn_frame_remove)
-        frame_buttons.addWidget(self.btn_frame_copy)
 
         frame_buttons.addStretch()
         map_editor.addLayout(frame_buttons)
 
-        frame_tile_buttons = QtW.QHBoxLayout()
-        frame_tile_buttons.setSpacing(4)
+        frame_copy_buttons = QtW.QHBoxLayout()
+        frame_copy_buttons.setSpacing(4)
 
-        frame_tile_buttons.addWidget(self.btn_frame_clone)
-        frame_tile_buttons.addWidget(self.btn_frame_erase)
+        frame_copy_buttons.addWidget(self.btn_frame_copy)
+        frame_copy_buttons.addWidget(self.btn_frame_clone)
 
-        frame_tile_buttons.addStretch()
-        map_editor.addLayout(frame_tile_buttons)
+        frame_copy_buttons.addStretch()
+        map_editor.addLayout(frame_copy_buttons)
 
         piece_list = QtW.QHBoxLayout()
         piece_list.addWidget(self.ui_build_piece_list())
@@ -1937,17 +1935,31 @@ class SpriteEditor(QtW.QWidget):
         # Add brand new frame to sprite
         self.sprite_new_frame(name, [])
 
-    def sprite_clone_frame(self):
+    def sprite_clone_frame_and_tiles(self):
+        return self.sprite_clone_frame(clone_tiles=True)
+
+    def sprite_clone_frame(self, clone_tiles=False):
         frame_index = self.frame_spinbox.value()
 
         if not (
             0 <= frame_index < len(self.map_frames)
             and frame_index < len(self.frame_labels)
         ):
-            return
+            return False
 
         # Commit any pending name edit before changing frames
         self._on_sprite_frame_label_changed()
+
+        if clone_tiles:
+            # Clone tiles here. We'll use them when we make the clone frame
+            try:
+                pieces = self.art_clone_frame_tiles(frame_index)
+            except ValueError as e:
+                QtW.QMessageBox.warning(self, "Clone Frame and Tiles", str(e))
+                return False
+        else:
+            # Clone the frame and its pieces (not the art tiles)
+            pieces = deepcopy(self.map_frames[frame_index])
 
         # Find an unused copy name
         base_name = f"{self.frame_labels[frame_index]}_Copy"
@@ -1959,9 +1971,13 @@ class SpriteEditor(QtW.QWidget):
             name = f"{base_name}{copy_number}"
             copy_number += 1
 
-        # Clone the frame and its pieces (not the art tiles)
-        pieces = deepcopy(self.map_frames[frame_index])
+        if clone_tiles:
+            # Rebuild art first; sprite_new_frame refreshes thumbnails
+            self.art_refresh_vram(refresh=False)
+            self.render_art_tiles()
+
         self.sprite_new_frame(name, pieces)
+        return True
 
     def sprite_remove_frame(self):
         frame_index = self.frame_spinbox.value()
@@ -2342,6 +2358,7 @@ class SpriteEditor(QtW.QWidget):
         )
         self.btn_frame_remove.setEnabled(has_frames)
         self.btn_frame_copy.setEnabled(has_frames)
+        self.btn_frame_clone.setEnabled(has_frames)
 
         # Include selection identity and property values
         state = (
@@ -2917,6 +2934,7 @@ class SpriteEditor(QtW.QWidget):
         """
         Enable optimization when mappings and source tiles are present.
         """
+        # "Ready" = mappings and art tile files are present and loaded in.
         ready = bool(self.map_frames) and any(row[4] for row in self.art_rows)
         self.arrange_tiles.setEnabled(ready)
         self.strip_tiles.setEnabled(ready)
@@ -3067,7 +3085,7 @@ class SpriteEditor(QtW.QWidget):
         # Indices omitted from the filtered orders are removed here
         self.art_apply_tile_orders(usage, orders)
 
-    def art_collect_tile_usage(self):
+    def art_collect_tile_usage(self, frame_index=None):
         """
         Builds usage records for each art buffer in a sprite build.
 
@@ -3128,8 +3146,12 @@ class SpriteEditor(QtW.QWidget):
         base_tile = self.vram_spinbox.value()
         first_use = 0
 
-        # Iterate through each frame in the sprite
-        for frame_index, pieces in enumerate(self.map_frames):
+        frames = enumerate(self.map_frames)
+        if frame_index is not None:
+            frames = [(frame_index, self.map_frames[frame_index])]
+
+        # Iterate through each requested frame in the sprite
+        for frame_index, pieces in frames:
             # For each frame, iterate through each piece
             for piece_index, piece in enumerate(pieces):
                 width, height = piece["width"], piece["height"]
@@ -3224,6 +3246,90 @@ class SpriteEditor(QtW.QWidget):
         self.piece_controls_state = None
         self.sprite_refresh_piece_controls()
         self.art_refresh_vram()
+
+    def art_clone_frame_tiles(self, frame_index):
+        """
+        Duplicate a frame's sourced tiles and return remapped piece copies
+
+        This has limitations tied to art_collect_tile_usage.
+        I'm working on solutions for this.
+        """
+        source_pieces = self.map_frames[frame_index]
+        pieces = deepcopy(source_pieces)
+        if not pieces:
+            return pieces
+
+        usage = self.art_collect_tile_usage(frame_index)
+        piece_copies = {id(source): copy for source, copy in zip(source_pieces, pieces)}
+        base_tile = self.vram_spinbox.value()
+
+        occupied = {slot for data in usage
+            for slot in range(data["offset"], data["offset"] + data["visible"])}
+
+        added_slots = set()
+        planned = []
+
+        for row_index, data in enumerate(usage):
+            indices = sorted(data["used"])
+
+            if not indices:
+                continue
+
+            visible = data["visible"]
+            new_visible = visible + len(indices)
+            start = data["offset"] + visible
+            end = data["offset"] + new_visible
+
+            if end > 2048:
+                raise ValueError(f"Art entry {row_index + 1} has insufficient VRAM "
+                    "space for the cloned tiles. Free space before cloning.")
+
+            slots = set(range(start, end))
+            if slots & (occupied | added_slots):
+                raise ValueError(f"Cloned tiles for art entry {row_index + 1} would "
+                    "overlap another art entry in VRAM. Leave space after this "
+                    "entry before cloning.")
+
+            added_slots.update(slots)
+
+            # Sorted source indices preserve each piece's consecutive tile run
+            positions = {old: visible + new for new, old in enumerate(indices)}
+            for piece, source_start in data["pieces"]:
+                piece_copies[id(piece)]["tile"] = (
+                    data["offset"] + positions[source_start] - base_tile) & 2047
+
+            tiles = [data["tiles"][index].copy() for index in indices]
+            count = data["count_spin"].value()
+
+            if count:
+                count = max(count, new_visible)
+            planned.append((data, tiles, count))
+
+        # Newly populated VRAM must not change previously missing art in any
+        # existing frame, including transparent pieces in the source frame
+        for existing_frame, frame in enumerate(self.map_frames):
+            for piece_index, piece in enumerate(frame):
+                start = (base_tile + piece["tile"]) & 2047
+
+                if any(start + tile in added_slots
+                        for tile in range(piece["width"] * piece["height"])):
+                    raise ValueError("Cloned tiles would fill missing art used by "
+                        f"frame {existing_frame}, piece {piece_index}. Choose an "
+                        "art layout that leaves its missing tiles transparent.")
+
+        for data, tiles, count in planned:
+            # Keep both buffer identity and the original loaded tile indices
+            visible = data["visible"]
+            data["tiles"][visible:visible] = tiles
+            spinbox = data["count_spin"]
+            was_blocked = spinbox.blockSignals(True)
+
+            try:
+                spinbox.setValue(count)
+            finally:
+                spinbox.blockSignals(was_blocked)
+
+        return pieces
 
 
     # --------------------------------------------------
