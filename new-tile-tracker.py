@@ -1,15 +1,14 @@
 """
-    NEW TILE USAGE TRACKER (v 2.1 -- Minor changes)
-    This version gets rid of the redundant set, instead using a structure for non-overlapping tile ranges.
+NEW TILE USAGE TRACKER (v 3)
+    Now accounts for pieces only partially covered by loaded art.
+        Their loaded tiles stay at the corresponding file boundary when arranging (ala Flex2).
+        Unlike Flex2, this considers leading pieces that may start before the loaded art file as well.
+        Missing tiles stay missing with no blank tiles added (Might introduce this as an option).
+    Instead of tracking EVERY used tile, this uses a structure of non-overlapping tile ranges.
     Only considers a single file loaded into VRAM, and doesn't account for DPLCs.
 
-New parameters:
+Parameters:
     blocks: non-overlapping used ranges, and their order of first usage
-    pieces: reference to pieces and their original starting tile indices, for later remapping
-
-Old parameters:
-    used: which tiles are referenced by mappings
-    runs: each piece's consecutive tile range, and its order of first usage.
     pieces: reference to pieces and their original starting tile indices, for later remapping
 """
 
@@ -55,39 +54,39 @@ class Tracker(object):
                 if end <= art_start or start >= art_end:
                     continue
 
-                # If partially loaded, raise exception (We will fix this)
-                if start < art_start or end > art_end:
-                    raise ValueError(
-                        f"Frame {frame_index}, piece {piece_index} "
-                        "has missing art tiles. Load its complete tile run "
-                        "before optimizing.")
+                # Track only loaded tiles. A partial run must remain at the
+                # boundary so its missing portion stays outside the art file
+                loaded_start = max(start, art_start) # actual start (piece's starting index, or art's starting index)
+                loaded_end = min(end, art_end) # actual end (piece's end index, or art's end index)
+                keep_start = start < art_start # For partial runs that start BEFORE the art file
+                keep_end = end > art_end # For partial runs that start AFTER the art file
 
-                # we no longer need a set of used tiles. This is scrapped
-                # usage["used"].update(tile_range)
                 # Add to the list of runs (with a zero-based usage index)
-                runs.append((start, end, len(runs))) # formerly stored in usage["runs"]
-                # Add piece (and its starting tile)
-                piece_refs.append((piece, start)) # formerly stored in usage["pieces"]
+                runs.append((loaded_start, loaded_end, len(runs), keep_start, keep_end))
+                # Add piece (Keep the original start index, even if it is before loaded art)
+                piece_refs.append((piece, start))
 
         # Merge overlapping runs in their original tile order
         blocks = []
 
         # Note: Start is inclusive, end is exclusive: [10, 14) = [10, 11, 12, 13]
-        for start, end, first_use in sorted(runs):
+        for start, end, first_use, keep_start, keep_end in sorted(runs):
             # If this isn't the 1st block, and its start precedes the end of the last block...
             if blocks and start < blocks[-1][1]:
-                old_start, old_end, old_use = blocks[-1]
+                old_start, old_end, old_use, old_keep_start, old_keep_end = blocks[-1]
 
                 #... merge the current overlapping run into the last block instead of starting a new one
                 blocks[-1] = (
                     old_start, # Preserve the earlier run start
                     max(old_end, end), # Use the later run end
                     min(old_use, first_use), # Preserve the earliest usage
+                    old_keep_start or keep_start,  # Preserve leading partial coverage
+                    old_keep_end or keep_end,  # Preserve trailing partial coverage
                 )
 
             # Otherwise, start a new block at the end of the list
             else:
-                blocks.append((start, end, first_use))
+                blocks.append((start, end, first_use, keep_start, keep_end))
 
         # Return usage dictionary
         return {"blocks": blocks, "pieces": piece_refs}
@@ -104,16 +103,32 @@ class Tracker(object):
             return False
 
         # Count is purely for checking whether to ask for tile removal
-        unused_count = len(self.vram_tiles) - sum(end - start for start, end, _ in usage["blocks"])
+        unused_count = len(self.vram_tiles) - sum(end - start for start, end, *_ in usage["blocks"])
 
         if unused_count > 0:
             # Ask whether to remove unused tiles, or stick them at the end of the buffer
             print("A prompt to remove unused tiles goes here.")
 
+        # Partition blocks according to their boundary constraints
+        # Leading = pieces start with a tile index BEFORE the loaded art
+        # Trailing = pieces end with a tile index AFTER the loaded art
+        leading_blocks, ordinary_blocks, trailing_blocks = [], [], []
+
+        for block in usage["blocks"]:
+            if block[3]: # 3 = keep_start flag
+                # A block constrained at BOTH edges covers the entire loaded file
+                # Include it once at the beginning, no other blocks fit
+                leading_blocks.append(block)
+            elif block[4]: # 4 = keep_end flag
+                trailing_blocks.append(block)
+            else:
+                ordinary_blocks.append(block)
+
         # Sort used tiles by order of first usage, leaving out unused tiles
+        # Leading partial blocks go first, then ordinary blocks by first usage
         order = [
-            index for start, end, _ in sorted(
-                usage["blocks"], key=lambda block: block[2]
+            index for start, end, *_ in (
+                leading_blocks + sorted(ordinary_blocks, key=lambda block: block[2])
             )
             for index in range(start, end)
         ]
@@ -121,17 +136,24 @@ class Tracker(object):
         # If the earlier prompt was answered 'YES', we skip this
         # section in order to remove unused tiles
         if True:
-            # Append unused tiles in their original order
+            # Append unused tiles BEFORE trailing partial blocks
             cursor = min(self.vram_tiles)
             art_end = max(self.vram_tiles) + 1
 
             # Add unused tiles before, in-between, and after blocks
-            for start, end, _ in usage["blocks"]:
+            for start, end, *_ in usage["blocks"]:
                 order.extend(range(cursor, start))
                 cursor = end
 
             # Include unused tiles after the final block
             order.extend(range(cursor, art_end))
+
+        # Keep trailing partial blocks at the actual end of the output
+        # otherwise these pieces would display unused art in place of missing tiles
+        order.extend(
+            index for start, end, *_ in trailing_blocks
+            for index in range(start, end)
+        )
 
         return True
 
@@ -147,11 +169,11 @@ class Tracker(object):
             return False
 
         # Count is purely for the prompt that notes number of tiles removed
-        _unused_count = len(self.vram_tiles) - sum(end - start for start, end, _ in usage["blocks"])
+        _unused_count = len(self.vram_tiles) - sum(end - start for start, end, *_ in usage["blocks"])
 
         # Retain original tile order, and leave out unused tiles
         _order = [
-            index for start, end, _ in usage["blocks"]
+            index for start, end, *_ in usage["blocks"]
             for index in range(start, end)
         ]
         return True
