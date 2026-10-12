@@ -182,8 +182,12 @@ class SpriteEditor(QtW.QWidget):
 
         # ui_build_art_viewer()
         self.vram_box = QtW.QGroupBox()
+        self.viewer_art_combo = create_combobox(
+            tooltip="Choose which art tile set to view. Art can only be directly edited in buffers, not in VRAM.",
+            items=["VRAM"]
+        )
         self.viewer_line_combo = create_combobox(
-            tooltip="Choose a palette line to view art tiles with",
+            tooltip="Choose a palette line to view art tiles with.",
             items=["Line 0", "Line 1", "Line 2", "Line 3"])
         self.vram_label = QtW.QLabel()
         self.vram_scroll = create_scrollarea(self.vram_label)
@@ -261,6 +265,9 @@ class SpriteEditor(QtW.QWidget):
         self.vram_spinbox.valueChanged.connect(self.sprite_refresh_previews)
         self.sprpal_spinbox.valueChanged.connect(self.sprite_refresh_previews)
         self.origin_checkbox.toggled.connect(self.render_sprite_frame)
+
+        # Alter render_art_tiles to render specific buffers if requested
+        self.viewer_art_combo.currentIndexChanged.connect(self.render_art_tiles)
         self.viewer_line_combo.currentIndexChanged.connect(self.render_art_tiles)
 
         self.render_sprite_frame()
@@ -640,7 +647,10 @@ class SpriteEditor(QtW.QWidget):
 
         # Active Palette Line Selector for the Viewer
         viewer_controls = QtW.QHBoxLayout()
-        viewer_controls.addWidget(QtW.QLabel("Preview Palette Line:"))
+        viewer_controls.addWidget(QtW.QLabel("Art View:"))
+        viewer_controls.addWidget(self.viewer_art_combo)
+        viewer_controls.addStretch()
+        viewer_controls.addWidget(QtW.QLabel("Palette View:"))
         viewer_controls.addWidget(self.viewer_line_combo)
         viewer_controls.addStretch()
         art_viewer_layout.addLayout(viewer_controls)
@@ -4007,7 +4017,13 @@ class SpriteEditor(QtW.QWidget):
     def render_art_tiles(self):
         """
         Renders the virtual VRAM contents into an image and refreshes the viewer canvas.
+
+        To-Do: Alter this function to render specific
         """
+        option = self.viewer_art_combo.currentIndex()
+        # 0 - self.vram_tiles (default)
+        # 1-3 - self.art_buffer_paths[_i - 1] - load specified art buffer
+
         # Render VRAM tile grid
         image = render_tile_grid(self.vram_tiles, self.palette_colors,
             palette_line=self.viewer_line_combo.currentIndex())
