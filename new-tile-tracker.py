@@ -1,5 +1,5 @@
 """
-    NEW TILE USAGE TRACKER (v 2)
+    NEW TILE USAGE TRACKER (v 2.1 -- Minor changes)
     This version gets rid of the redundant set, instead using a structure for non-overlapping tile ranges.
     Only considers a single file loaded into VRAM, and doesn't account for DPLCs.
 
@@ -64,7 +64,7 @@ class Tracker(object):
 
                 # we no longer need a set of used tiles. This is scrapped
                 # usage["used"].update(tile_range)
-                # Add to the list of runs (with a non-zero index)
+                # Add to the list of runs (with a zero-based usage index)
                 runs.append((start, end, len(runs))) # formerly stored in usage["runs"]
                 # Add piece (and its starting tile)
                 piece_refs.append((piece, start)) # formerly stored in usage["pieces"]
@@ -72,6 +72,7 @@ class Tracker(object):
         # Merge overlapping runs in their original tile order
         blocks = []
 
+        # Note: Start is inclusive, end is exclusive: [10, 14) = [10, 11, 12, 13]
         for start, end, first_use in sorted(runs):
             # If this isn't the 1st block, and its start precedes the end of the last block...
             if blocks and start < blocks[-1][1]:
@@ -79,9 +80,9 @@ class Tracker(object):
 
                 #... merge the current overlapping run into the last block instead of starting a new one
                 blocks[-1] = (
-                    old_start,
-                    max(old_end, end),
-                    max(old_use, first_use),
+                    old_start, # Preserve the earlier run start
+                    max(old_end, end), # Use the later run end
+                    min(old_use, first_use), # Preserve the earliest usage
                 )
 
             # Otherwise, start a new block at the end of the list
@@ -102,9 +103,8 @@ class Tracker(object):
             print(f"error: {e}")
             return False
 
-        arttile_count = (max(self.vram_tiles) + 1) - (min(self.vram_tiles))
-        used_count = sum(end - start for start, end, _ in usage["blocks"])
-        unused_count = arttile_count - used_count
+        # Count is purely for checking whether to ask for tile removal
+        unused_count = len(self.vram_tiles) - sum(end - start for start, end, _ in usage["blocks"])
 
         if unused_count > 0:
             # Ask whether to remove unused tiles, or stick them at the end of the buffer
@@ -146,8 +146,11 @@ class Tracker(object):
             print(f"error: {e}")
             return False
 
+        # Count is purely for the prompt that notes number of tiles removed
+        _unused_count = len(self.vram_tiles) - sum(end - start for start, end, _ in usage["blocks"])
+
         # Retain original tile order, and leave out unused tiles
-        order = [
+        _order = [
             index for start, end, _ in usage["blocks"]
             for index in range(start, end)
         ]
