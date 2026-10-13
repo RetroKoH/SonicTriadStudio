@@ -195,6 +195,7 @@ class SpriteEditor(QtW.QWidget):
             width=90, tooltip="Arrange tiles by sprite usage", on_clicked=self.art_arrange_tiles, enabled=False)
         self.strip_tiles = create_pushbutton("Strip Unused Tiles",
             width=110, tooltip="Remove all unused tiles", on_clicked=self.art_strip_unused_tiles, enabled=False)
+        self.pad_tiles = create_checkbox("Pad Tiles")
 
         # ui_build_sprite_viewer()
         self.sprite_frame_list = SpriteFrameList()
@@ -649,6 +650,7 @@ class SpriteEditor(QtW.QWidget):
         viewer_controls = QtW.QHBoxLayout()
         viewer_controls.addWidget(QtW.QLabel("Art View:"))
         viewer_controls.addWidget(self.viewer_art_combo)
+        self.viewer_art_combo.setFixedWidth(100)
         viewer_controls.addStretch()
         viewer_controls.addWidget(QtW.QLabel("Palette View:"))
         viewer_controls.addWidget(self.viewer_line_combo)
@@ -666,6 +668,7 @@ class SpriteEditor(QtW.QWidget):
 
         tile_controls.addWidget(self.arrange_tiles)
         tile_controls.addWidget(self.strip_tiles)
+        tile_controls.addWidget(self.pad_tiles)
 
         tile_controls.addStretch()
         art_viewer_layout.addLayout(tile_controls)

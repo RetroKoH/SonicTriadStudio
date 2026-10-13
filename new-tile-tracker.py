@@ -1,5 +1,7 @@
 """
-NEW TILE USAGE TRACKER (v 3.5)
+NEW TILE USAGE TRACKER (v 3.51)
+    Bugfix: Padded blank tiles would erroneously decrement the unused tile count. This has been fixed.
+
     Now accounts for pieces only partially covered by loaded art. There are two methods for handling this:
         Their loaded tiles stay at the corresponding file boundary when arranging (ala Flex2).
         Unlike Flex2, this considers leading pieces that may start before the loaded art file as well.
@@ -157,8 +159,15 @@ class Tracker(object):
             print(f"error: {e}")
             return False
 
+        # Count only used ORIGINAL tiles; padding positions are not loaded art.
+        art_start = min(self.vram_tiles)
+        art_end = max(self.vram_tiles) + 1
+        loaded_used = sum(
+            max(0, min(end, art_end) - max(start, art_start))
+            for start, end, *_ in usage["blocks"]
+        )
         # Count is purely for checking whether to ask for tile removal
-        unused_count = len(self.vram_tiles) - sum(end - start for start, end, *_ in usage["blocks"])
+        unused_count = len(self.vram_tiles) - loaded_used
 
         padded_count = len(self.vram_tiles) + usage["head_padding"] + usage["tail_padding"]
 
@@ -194,9 +203,7 @@ class Tracker(object):
         # Retain unused ORIGINAL tiles only if removal was not requested
         if not remove_unused:
             # Append unused tiles BEFORE trailing partial blocks
-            cursor = min(self.vram_tiles)
-            art_start = cursor
-            art_end = max(self.vram_tiles) + 1
+            cursor = art_start
 
             # Add unused tiles before, in-between, and after blocks
             for start, end, *_ in usage["blocks"]:
@@ -236,8 +243,15 @@ class Tracker(object):
             print(f"error: {e}")
             return False
 
+        # Use the same loaded-range count as Arrange, excluding padding positions.
+        art_start = min(self.vram_tiles)
+        art_end = max(self.vram_tiles) + 1
+        loaded_used = sum(
+            max(0, min(end, art_end) - max(start, art_start))
+            for start, end, *_ in usage["blocks"]
+        )
         # Count is purely for the prompt that notes number of tiles removed
-        _unused_count = len(self.vram_tiles) - sum(end - start for start, end, *_ in usage["blocks"])
+        _unused_count = len(self.vram_tiles) - loaded_used
 
         # Retain original tile order, and leave out unused tiles
         _order = [
