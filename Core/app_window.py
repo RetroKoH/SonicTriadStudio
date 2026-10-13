@@ -23,7 +23,7 @@ class TriadApp(QtW.QMainWindow):
 
         self.setWindowTitle("Sonic Triad Studio - RetroKoH 2027")
         self.resize(1024, 768)
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(1024, 768)
 
         main_widget = QtW.QWidget()
         self.setCentralWidget(main_widget)
