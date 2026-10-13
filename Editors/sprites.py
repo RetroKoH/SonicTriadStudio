@@ -190,7 +190,7 @@ class SpriteEditor(QtW.QWidget):
             tooltip="Choose a palette line to view art tiles with.",
             items=["Line 0", "Line 1", "Line 2", "Line 3"])
         self.vram_label = QtW.QLabel()
-        self.vram_scroll = create_scrollarea(self.vram_label)
+        self.vram_scroll = create_scrollarea(self.vram_label, vertical_policy=Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.arrange_tiles = create_pushbutton("Arrange Tiles",
             width=90, tooltip="Arrange tiles by sprite usage", on_clicked=self.art_arrange_tiles, enabled=False)
         self.strip_tiles = create_pushbutton("Strip Unused Tiles",
@@ -266,7 +266,7 @@ class SpriteEditor(QtW.QWidget):
         self.sprpal_spinbox.valueChanged.connect(self.sprite_refresh_previews)
         self.origin_checkbox.toggled.connect(self.render_sprite_frame)
 
-        # Alter render_art_tiles to render specific buffers if requested
+        # Note: Viewing a buffer does not affect the art used by sprite rendering (in VRAM)
         self.viewer_art_combo.currentIndexChanged.connect(self.render_art_tiles)
         self.viewer_line_combo.currentIndexChanged.connect(self.render_art_tiles)
 
@@ -2940,12 +2940,40 @@ class SpriteEditor(QtW.QWidget):
         self.btn_art_save.setEnabled(count > 0)
         self.btn_art_remove.setEnabled(0 <= selected_row < count)
 
+        self.art_update_view_options()
+
+    def art_update_view_options(self):
+        """
+        Keep the art selection dropdown up-to-date with the art files loaded.
+        """
+        combo = self.viewer_art_combo
+        paths = [row[0] for row in self.art_rows]
+        if [combo.itemData(index) for index in range(1, combo.count())] == paths:
+            return
+
+        # Identify buffers by their path widgets
+        selected = combo.currentData()
+        was_blocked = combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem("VRAM")
+            for index, path_input in enumerate(paths, start=1):
+                combo.addItem(f"Buffer {index}", path_input)
+            combo.setCurrentIndex(paths.index(selected) + 1 if selected in paths else 0)
+        finally:
+            combo.blockSignals(was_blocked)
+
+        self.render_art_tiles()
+
     def art_update_tile_controls(self):
         """
-        Enable optimization when mappings and source tiles are present.
+        Enable optimization for the selected art buffer.
         """
         # "Ready" = mappings and art tile files are present and loaded in.
-        ready = bool(self.map_frames) and any(row[4] for row in self.art_rows)
+        buffer_index = self.viewer_art_combo.currentIndex() - 1
+        ready = (bool(self.map_frames) and 0 <= buffer_index < len(self.art_rows)
+            and bool(self.art_rows[buffer_index][4]))
+
         self.arrange_tiles.setEnabled(ready)
         self.strip_tiles.setEnabled(ready)
 
@@ -2983,8 +3011,13 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     def art_arrange_tiles(self):
         """
-        Order each art buffer's used blocks by first mapping usage.
+        Order the selected art buffer's tiles by first mapping usage.
         """
+        buffer_index = self.viewer_art_combo.currentIndex() - 1
+        if not (0 <= buffer_index < len(self.art_rows)
+                and self.art_rows[buffer_index][4]):
+            return False
+
         # Get tile usage across all loaded sprite frames
         try:
             usage = self.art_collect_tile_usage()
@@ -2993,21 +3026,26 @@ class SpriteEditor(QtW.QWidget):
             QtW.QMessageBox.warning(self, "Arrange Tiles", str(e))
             return False
 
+        # Isolate the selected buffer
+        usage = [usage[buffer_index]]
+
         # Count is purely for checking whether to ask for tile removal
         unused_count = sum(len(data["tiles"]) - len(data["used"]) for data in usage)
 
+        # Give a prompt ONLY if unused tiles are detected
         if unused_count > 0:
             # Ask whether to remove unused tiles, or stick them at the end of the buffer
             answer = QtW.QMessageBox.question(self, "Arrange Tiles",
-                "All tiles will be arranged in order of first sprite usage.\n\n"
+                f"Tiles in {self.viewer_art_combo.currentText()} will be arranged "
+                "in order of first sprite usage.\n\n"
                 "Also delete unused tiles? Choosing No keeps unused tiles at the "
-                "end of each art buffer.",
+                "end of this art buffer.",
                 QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
                 QtW.QMessageBox.StandardButton.No)
         else:
             answer = None
 
-        # Rearrange each art buffer (each one stored in an order within orders)
+        # Rearrange the selected art buffer
         orders = []
         for data in usage:
             # Merge overlapping piece runs so shared tiles remain consecutive
@@ -3024,7 +3062,7 @@ class SpriteEditor(QtW.QWidget):
             for start, end, _ in sorted(blocks, key=lambda block: block[2]):
                 order.extend(range(start, end))
 
-            # Preserve unused tiles only if the user chooses to keep them.
+            # Preserve unused tiles only if the user chooses to keep them
             if answer is not None:
                 if answer!= QtW.QMessageBox.StandardButton.Yes:
                     order.extend(index for index in range(len(data["tiles"])) if index not in data["used"])
@@ -3043,14 +3081,22 @@ class SpriteEditor(QtW.QWidget):
 
     def art_strip_unused_tiles(self):
         """
-        Confirm removal without rearranging the remaining used tiles.
+        Confirm removal from the selected buffer.
         """
+        buffer_index = self.viewer_art_combo.currentIndex() - 1
+        if not (0 <= buffer_index < len(self.art_rows)
+                and self.art_rows[buffer_index][4]):
+            return False
+
         # Get tile usage across all loaded sprite frames
         try:
             usage = self.art_collect_tile_usage()
         except ValueError as e:
             QtW.QMessageBox.warning(self, "Strip Unused Tiles", str(e))
             return False
+
+        # Isolate the selected buffer
+        usage = [usage[buffer_index]]
 
         # Count is purely for the prompt
         unused_count = sum(len(data["tiles"]) - len(data["used"]) for data in usage)
@@ -3062,7 +3108,8 @@ class SpriteEditor(QtW.QWidget):
 
         # Ask to remove unused tiles
         answer = QtW.QMessageBox.question(self, "Strip Unused Tiles",
-            f"Delete {unused_count} unused tile(s) from the loaded art buffers?\n\n"
+            f"Delete {unused_count} unused tile(s) from "
+            f"{self.viewer_art_combo.currentText()}?\n\n"
             "The remaining tiles keep their current order. Mapping tile indices "
             "will be updated. Files are changed when you save.",
             QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
@@ -4016,16 +4063,34 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     def render_art_tiles(self):
         """
-        Renders the virtual VRAM contents into an image and refreshes the viewer canvas.
-
-        To-Do: Alter this function to render specific
+        Render compiled VRAM or the complete selected art-file buffer.
         """
         option = self.viewer_art_combo.currentIndex()
+        self.art_update_tile_controls()
+
         # 0 - self.vram_tiles (default)
+        if option == 0:
+            tiles = self.vram_tiles
+            tile_count = 2048
+
         # 1-3 - self.art_buffer_paths[_i - 1] - load specified art buffer
+        elif 1 <= option <= len(self.art_rows):
+            # Source tiles start at index zero, independent of VRAM offset/count
+            art_tiles = self.art_rows[option - 1][4]
+            if not art_tiles:
+                self.vram_label.clear()
+                return
+
+            tiles = dict(enumerate(art_tiles))
+            tile_count = len(art_tiles)
+
+        # Out-of-bounds case
+        else:
+            self.vram_label.clear()
+            return
 
         # Render VRAM tile grid
-        image = render_tile_grid(self.vram_tiles, self.palette_colors,
+        image = render_tile_grid(tiles, self.palette_colors, tile_count=tile_count,
             palette_line=self.viewer_line_combo.currentIndex())
 
         # Scale up 2x
