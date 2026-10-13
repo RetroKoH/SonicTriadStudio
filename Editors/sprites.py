@@ -196,6 +196,8 @@ class SpriteEditor(QtW.QWidget):
         self.strip_tiles = create_pushbutton("Strip Unused Tiles",
             width=110, tooltip="Remove all unused tiles", on_clicked=self.art_strip_unused_tiles, enabled=False)
         self.pad_tiles = create_checkbox("Pad Tiles")
+        self.pad_tiles.setToolTip("For Arrange Tiles: complete partial pieces with blank tiles.\n"
+            "Positions outside this buffer's loaded range are treated as blank.")
 
         # ui_build_sprite_viewer()
         self.sprite_frame_list = SpriteFrameList()
@@ -2979,6 +2981,7 @@ class SpriteEditor(QtW.QWidget):
 
         self.arrange_tiles.setEnabled(ready)
         self.strip_tiles.setEnabled(ready)
+        self.pad_tiles.setEnabled(ready)
 
     def art_refresh_vram(self, *, refresh=True):
         """
@@ -3015,29 +3018,23 @@ class SpriteEditor(QtW.QWidget):
     def art_arrange_tiles(self):
         """
         Order the selected art buffer's tiles by first mapping usage.
+        Partially covered pieces are covered either with or without padding.
         """
+        # Get art tile buffer to be rearranged
         buffer_index = self.viewer_art_combo.currentIndex() - 1
-        if not (0 <= buffer_index < len(self.art_rows)
-                and self.art_rows[buffer_index][4]):
+        if not (0 <= buffer_index < len(self.art_rows) and self.art_rows[buffer_index][4]):
             return False
 
-        # Get tile usage across all loaded sprite frames
+        # Get tile usage for this art file, across all loaded sprite frames
         try:
-            usage = self.art_collect_tile_usage()
-
+            usage = self.art_collect_tile_usage(buffer_index, self.pad_tiles.isChecked())
         except ValueError as e:
             QtW.QMessageBox.warning(self, "Arrange Tiles", str(e))
             return False
 
-        # Isolate the selected buffer
-        usage = [usage[buffer_index]]
-
-        # Count is purely for checking whether to ask for tile removal
-        unused_count = sum(len(data["tiles"]) - len(data["used"]) for data in usage)
-
-        # Give a prompt ONLY if unused tiles are detected
-        if unused_count > 0:
-            # Ask whether to remove unused tiles, or stick them at the end of the buffer
+        # If there are unused tiles, ask to remove them or stick them at the end of the buffer
+        remove_unused = False
+        if usage["unused_count"]:
             answer = QtW.QMessageBox.question(self, "Arrange Tiles",
                 f"Tiles in {self.viewer_art_combo.currentText()} will be arranged "
                 "in order of first sprite usage.\n\n"
@@ -3045,38 +3042,60 @@ class SpriteEditor(QtW.QWidget):
                 "end of this art buffer.",
                 QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
                 QtW.QMessageBox.StandardButton.No)
-        else:
-            answer = None
+            remove_unused = answer == QtW.QMessageBox.StandardButton.Yes
 
-        # Rearrange the selected art buffer
-        orders = []
-        for data in usage:
-            # Merge overlapping piece runs so shared tiles remain consecutive
-            blocks = []
+        # Partition blocks according to their boundary constraints
+        # Leading = pieces start with a tile index BEFORE the loaded art
+        # Trailing = pieces end with a tile index AFTER the loaded art
+        leading, ordinary, trailing = [], [], []
 
-            for start, end, first_use in sorted(data["runs"]):
-                if blocks and start < blocks[-1][1]:
-                    old_start, old_end, old_use = blocks[-1]
-                    blocks[-1] = (old_start, max(old_end, end), min(old_use, first_use))
-                else:
-                    blocks.append((start, end, first_use))
+        for block in usage["blocks"]:
+            if block[3]: # 3 = keep_start flag
+                # A block constrained at BOTH boundaries covers the entire loaded file
+                # Include it once at the beginning, no other blocks fit
+                leading.append(block)
+            elif block[4]: # 4 = keep_end flag
+                trailing.append(block)
+            else:
+                ordinary.append(block)
 
-            order = []
-            for start, end, _ in sorted(blocks, key=lambda block: block[2]):
-                order.extend(range(start, end))
+        # Sort used tiles by order of first usage, leaving out unused tiles
+        # Leading partial blocks go first, then ordinary blocks by first usage
+        order = [index
+            for start, end, *_ in leading + sorted(ordinary, key=lambda block: block[2])
+            for index in range(start, end)]
 
-            # Preserve unused tiles only if the user chooses to keep them
-            if answer is not None:
-                if answer!= QtW.QMessageBox.StandardButton.Yes:
-                    order.extend(index for index in range(len(data["tiles"])) if index not in data["used"])
-            orders.append(order)
+        # Retain unused ORIGINAL tiles only if removal was not requested
+        if not remove_unused:
+            # Append unused tiles BEFORE trailing partial blocks
+            cursor = usage["offset"]
+            art_end = cursor + usage["visible"]
 
-        if answer == QtW.QMessageBox.StandardButton.Yes:
-            # Filter out unused tiles, then update mapping tile indices
-            self.art_remove_unused_tiles(usage, orders)
-        else:
-            # Apply new tile arrangement and update mapping tile indices
-            self.art_apply_tile_orders(usage, orders)
+            # Add unused tiles before, in-between, and after blocks
+            for start, end, *_ in usage["blocks"]:
+                loaded_start = max(start, usage["offset"])
+                loaded_end = min(end, art_end)
+                if loaded_start >= loaded_end:
+                    continue
+                order.extend(range(cursor, loaded_start))
+                cursor = loaded_end
+
+            # Include unused tiles after the final block
+            order.extend(range(cursor, art_end))
+
+        # Keep trailing partial blocks at the actual end of the output
+        # otherwise these pieces would display unused art in place of missing tiles
+        order.extend(index for start, end, *_ in trailing for index in range(start, end))
+
+        # Apply changes to tile order and sprite mappings; Remove tiles if necessary
+        try:
+            if remove_unused:
+                self.art_remove_unused_tiles(usage, order)
+            else:
+                self.art_apply_tile_orders(usage, order, keep_unused=True)
+        except ValueError as e:
+            QtW.QMessageBox.warning(self, "Arrange Tiles", str(e))
+            return False
 
         # Refresh the editor
         self.art_refresh_after_tile_edit()
@@ -3084,34 +3103,30 @@ class SpriteEditor(QtW.QWidget):
 
     def art_strip_unused_tiles(self):
         """
-        Confirm removal from the selected buffer.
+        Remove unused tiles from the selected file, retaining tile order.
         """
+        # Get art tile buffer to be modified
         buffer_index = self.viewer_art_combo.currentIndex() - 1
         if not (0 <= buffer_index < len(self.art_rows)
                 and self.art_rows[buffer_index][4]):
             return False
 
-        # Get tile usage across all loaded sprite frames
+        # Get tile usage for this art file, across all loaded sprite frames
         try:
-            usage = self.art_collect_tile_usage()
+            # Strip never adds padding, even when Pad Tiles is checked
+            usage = self.art_collect_tile_usage(buffer_index)
         except ValueError as e:
             QtW.QMessageBox.warning(self, "Strip Unused Tiles", str(e))
             return False
 
-        # Isolate the selected buffer
-        usage = [usage[buffer_index]]
-
-        # Count is purely for the prompt
-        unused_count = sum(len(data["tiles"]) - len(data["used"]) for data in usage)
-
-        # Early exit if no tiles are unused
-        if unused_count == 0:
+        # End early if there are no tiles to remove
+        if not usage["unused_count"]:
             QtW.QMessageBox.information(self, "Strip Unused Tiles", "There are no unused tiles.")
             return False
 
         # Ask to remove unused tiles
         answer = QtW.QMessageBox.question(self, "Strip Unused Tiles",
-            f"Delete {unused_count} unused tile(s) from "
+            f"Delete {usage['unused_count']} unused tile(s) from "
             f"{self.viewer_art_combo.currentText()}?\n\n"
             "The remaining tiles keep their current order. Mapping tile indices "
             "will be updated. Files are changed when you save.",
@@ -3123,36 +3138,199 @@ class SpriteEditor(QtW.QWidget):
             return False
 
         # Remove unused tiles without altering existing tile order
-        self.art_remove_unused_tiles(usage)
+        try:
+            self.art_remove_unused_tiles(usage)
+        except ValueError as e:
+            QtW.QMessageBox.warning(self, "Strip Unused Tiles", str(e))
+            return False
 
         # Refresh the editor
         self.art_refresh_after_tile_edit()
         return True
 
-    def art_remove_unused_tiles(self, usage, orders=None):
+    def art_remove_unused_tiles(self, usage, order=None):
         """
         Remove unused tiles, preserving the supplied or original tile order.
+
+        order contains only used positions, including planned blanks.
+        The unused loaded tiles and unloaded source tail are omitted together.
         """
-        # Build an order for each buffer
-        if orders is None:
-            # Retain used tiles in their original order
-            orders = [sorted(data["used"]) for data in usage]
-        else:
-            # Filter unused tiles out of the provided orders
-            orders = [[index for index in order if index in data["used"]]
-                for data, order in zip(usage, orders)]
+        # If no order is provided, Create one with used tiles in their original order
+        if order is None:
+            order = [index for start, end, *_ in usage["blocks"]
+                for index in range(start, end)]
 
-        # Indices omitted from the filtered orders are removed here
-        self.art_apply_tile_orders(usage, orders)
+        # Retain original tile order, and leave out unused tiles
+        self.art_apply_tile_orders(usage, order)
 
-    def art_collect_tile_usage(self, frame_index=None):
+    def art_collect_tile_usage(self, buffer_index=None, pad_missing=False, frame_index=None):
         """
         Builds usage records for each art buffer in a sprite build.
+        Positions are absolute VRAM tile indices. DPLC remapping is not yet supported.
+        (Note: frame_index specifies a specific frame, though this is currently unused,
+        since Frame cloning uses the old collector instead (which checks all loaded art buffers)
 
         Limitations:
             DPLC loaded art is currently not supported (DPLCs aren't supported yet anyway)
-            Art entries CANNOT overlap one another in VRAM
-            Pieces cannot be made up of tiles from multiple art file entries
+            Art entries overlapping one another in VRAM has no effect
+                - To-Do: Might modify this to flag overlapped tiles for deletion (Optional)
+            Cross-buffer pieces may require manual VRAM adjustments after optimization.
+        """
+        # This will add another layer to tile remapping. For now, it's disabled
+        # After DPLCs are added, I'll revisit this
+        if self.dplc_cb.isChecked():
+            raise ValueError("Disable DPLCs before optimizing art. DPLC tile remapping is not implemented yet.")
+
+        # Stop if no frames (A frame with no pieces still passes)
+        if not self.map_frames:
+            raise ValueError("Load or create mapping frames before optimizing art.")
+
+        # If a specific buffer isn't picked, use the dropdown selection
+        if buffer_index is None:
+            buffer_index = self.viewer_art_combo.currentIndex() - 1
+
+        # A series of art buffer validation checks
+        if not 0 <= buffer_index < len(self.art_rows):
+            raise ValueError("Select an art buffer before optimizing tiles.")
+
+        path_input, _, offset_spin, count_spin, tiles = self.art_rows[buffer_index]
+
+        if path_input.text().strip() and path_input not in self.art_buffer_paths:
+            raise ValueError(f"Load art entry {buffer_index + 1} before optimizing art.")
+
+        if not tiles:
+            raise ValueError("Load art tiles into the selected buffer before optimizing art.")
+
+        # Before, a loop ran for each loaded entry. Now, this is only performed for a selected entry
+        art_start = offset_spin.value()    # VRAM offset tiles are loaded into
+        # Number of visible tiles loaded into VRAM
+        visible = min(count_spin.value() or len(tiles), len(tiles), 2048 - art_start)
+        art_end = art_start + visible # end of the art file
+
+        base_tile = self.vram_spinbox.value()
+        frames = enumerate(self.map_frames)
+
+        # If tile usage is being checked for a specific frame...
+        if frame_index is not None:
+            frames = [(frame_index, self.map_frames[frame_index])]
+
+        # Collect these in their own temp structures. They're used to form blocks later.
+        # Usage dictionary will be updated after that is finished.
+        runs, candidates = [], []
+
+        # Iterate through every frame in the sprite
+        for current_frame, pieces in frames:
+            # Iterate through every piece in each frame
+            for piece_index, piece in enumerate(pieces):
+                width, height = piece["width"], piece["height"]
+
+                # Validation check: dimensions
+                if (not isinstance(width, int) or not isinstance(height, int)
+                        or not 1 <= width <= 4 or not 1 <= height <= 4):
+                    raise ValueError(f"Frame {current_frame}, piece {piece_index} has invalid dimensions.")
+
+                # Get first tile, last tile, and range of tiles for this piece
+                start = (base_tile + piece["tile"]) & 2047
+                end = start + width * height
+
+                # If art is completely missing from the piece, skip piece
+                # With padding, keep candidates until we know which pieces the
+                # enlarged output may reach, including shared missing tiles.
+                if not pad_missing and (end <= art_start or start >= art_end):
+                    continue
+
+                if pad_missing:
+                    # Track loaded tiles; Missing indices act as blank placeholders
+                    run_start, run_end = start, end
+                    keep_start = keep_end = False
+                else:
+                    # Track only loaded tiles and preserve partial coverage
+                    run_start = max(start, art_start)  # actual start (piece's starting index, or art's starting index)
+                    run_end = min(end, art_end)  # actual end (piece's end index, or art's end index)
+                    keep_start = start < art_start  # For partial runs that start BEFORE the art file
+                    keep_end = end > art_end  # For partial runs that start AFTER the art file
+
+                # Add to the list of runs (with a zero-based usage index)
+                runs.append((run_start, run_end, len(runs), keep_start, keep_end))
+                # Add piece candidate
+                candidates.append((piece, start, end))
+
+        # Merge overlapping runs in their original tile order
+        blocks = []
+
+        # Note: Start is inclusive, end is exclusive: [10, 14) = [10, 11, 12, 13]
+        for start, end, first_use, keep_start, keep_end in sorted(runs):
+            # If this isn't the 1st block, and its start precedes the end of the last block...
+            if blocks and start < blocks[-1][1]:
+                old_start, old_end, old_use, old_keep_start, old_keep_end = blocks[-1]
+
+                # ... merge the current overlapping run into the last block instead of starting a new one
+                blocks[-1] = (
+                    old_start, # Preserve the earlier run start
+                    max(old_end, end), # Use the later run end
+                    min(old_use, first_use), # Preserve the earliest usage
+                    old_keep_start or keep_start,  # Preserve leading partial coverage
+                    old_keep_end or keep_end,  # Preserve trailing partial coverage
+                )
+
+            # Otherwise, start a new block at the end of the list
+            else:
+                blocks.append((start, end, first_use, keep_start, keep_end))
+
+        # Art tile padding handling starts here
+        head_padding = tail_padding = 0
+
+        if pad_missing:
+            # Start with complete merged blocks touching original art.
+            # Padding grows output while maintaining the starting address.
+            # If that growth reaches a wholly missing piece, include its candidate too.
+            # This way, rearrangement won't make that piece display unrelated art.
+            all_blocks = blocks
+            output_end = art_end
+
+            while True:
+                blocks = [block for block in all_blocks
+                    if block[0] < output_end and block[1] > art_start]
+                # Merged blocks do not overlap, so shared missing tiles count once
+                head_padding = sum(max(0, min(end, art_start) - start)
+                    for start, end, *_ in blocks)
+                tail_padding = sum(max(0, end - max(start, art_end))
+                    for start, end, *_ in blocks)
+                padded_end = art_end + head_padding + tail_padding
+
+                if padded_end == output_end:
+                    break
+                output_end = padded_end
+
+            # Include every piece belonging to a selected complete block,
+            # including ones sharing only its missing tile positions
+            piece_refs = [(piece, start) for piece, start, end in candidates
+                if any(block[0] <= start and end <= block[1] for block in blocks)]
+        else:
+            # Preserve original starts, including starts before loaded art
+            piece_refs = [(piece, start) for piece, start, _ in candidates]
+
+        # NOTE: Added padding tiles never affect the count of unused original tiles
+        loaded_used = sum(max(0, min(end, art_end) - max(start, art_start))
+            for start, end, *_ in blocks)
+
+        # Return completed usage record
+        return {"tiles": tiles, "offset": art_start, "visible": visible,
+            "count_spin": count_spin, "buffer_index": buffer_index,
+            "blocks": blocks, "pieces": piece_refs, "pad_missing": pad_missing,
+            "head_padding": head_padding, "tail_padding": tail_padding,
+            "unused_count": len(tiles) - loaded_used}
+
+    def art_collect_clone_tile_usage(self, frame_index=None):
+        """
+        Collect complete sourced runs across buffers for frame cloning.
+        (Retains the original collector which examined frame(s) across all loaded buffers)
+        To-Do: Consider using the new collector for cloning, and call it for each buffer here.
+
+        Limitations:
+            DPLC loaded art is currently not supported (DPLCs aren't supported yet anyway)
+            Art entries CANNOT overlap one another in VRAM (Might be resolved)
+            Pieces cannot be made up of tiles from multiple art file entries (Need to test)
         """
         # This will add another layer to tile remapping. For now, it's disabled
         # After DPLCs are added, I'll revisit this
@@ -3253,51 +3431,45 @@ class SpriteEditor(QtW.QWidget):
         # Return completed usage records
         return usage
 
-    def art_apply_tile_orders(self, usage, orders):
+    def art_apply_tile_orders(self, usage, order, *, keep_unused=False):
+        """Prepare one buffer and its mappings, then apply them together.
+
+        Order positions use original absolute VRAM indices. Positions outside
+        the original loaded prefix represent fresh blank tiles. When keeping
+        unused tiles, the original unloaded tail remains after the new prefix.
         """
-        Prepare remapped buffers and piece indices, then apply together.
-        """
-        planned = [] # for each buffer’s replacement tiles, mapping updates, and new tile count
-        base_tile = self.vram_spinbox.value() # Used because a piece's "tile" value is relative to this point
+        offset, visible = usage["offset"], usage["visible"]
+        new_visible = len(order)
+        if offset + new_visible > 2048:
+            raise ValueError("The optimized art would exceed VRAM tile 2047. "
+                "Lower this buffer's VRAM start or remove unused tiles before optimizing.")
 
-        # data: dict returned by art_collect_tile_usage()
-        # order: indices into the original art buffer, listed in their new order
-        for data, order in zip(usage, orders):
-            # create a lookup from old indices to new indices {old_idx: new_idx}
-            positions = {old_index: new_index for new_index, old_index in enumerate(order)}
-            # Calc each piece’s new starting tile
-            updates = [(piece, (data["offset"] + positions[start] - base_tile) & 2047)
-                for piece, start in data["pieces"]]
+        art_end = offset + visible
+        tiles = [usage["tiles"][index - offset] if offset <= index < art_end
+            else [0] * 64 for index in order]
+        if keep_unused:
+            tiles.extend(usage["tiles"][visible:])
 
-            # Get replacement tile count
-            visible = sum(index < data["visible"] for index in order)
-            count = data["count_spin"].value()
+        positions = {old_index: new_index for new_index, old_index in enumerate(order)}
+        updates = []
+        base_tile = self.vram_spinbox.value()
+        for piece, start in usage["pieces"]:
+            # Unpadded leading pieces are remapped via their first loaded tile.
+            anchor = start if usage["pad_missing"] else max(start, offset)
+            new_start = offset + positions[anchor] - (anchor - start)
+            updates.append((piece, (new_start - base_tile) & 2047))
 
-            if count:
-                # Zero means All tiles, otherwise use specified tile count
-                # Note: counting all from an empty buffer counts ZERO tiles
-                count = visible
+        count = new_visible if usage["count_spin"].value() else 0
+        usage["tiles"][:] = tiles
+        for piece, tile_index in updates:
+            piece["tile"] = tile_index
 
-            # Store the planned replacement buffer
-            planned.append((data, [data["tiles"][index] for index in order], updates, count))
-
-        # Apply planned changes to the actual art buffer(s)
-        for data, tiles, updates, count in planned:
-            # Preserve buffer references used by file loading/saving
-            data["tiles"][:] = tiles
-
-            # Adjust the starting tile for every mapping piece
-            for piece, tile_index in updates:
-                piece["tile"] = tile_index
-
-            spinbox = data["count_spin"]
-            was_blocked = spinbox.blockSignals(True)
-
-            try:
-                spinbox.setValue(count)
-            finally:
-                # Restore widget state, even if operation failed
-                spinbox.blockSignals(was_blocked)
+        spinbox = usage["count_spin"]
+        was_blocked = spinbox.blockSignals(True)
+        try:
+            spinbox.setValue(count)
+        finally:
+            spinbox.blockSignals(was_blocked)
 
     def art_refresh_after_tile_edit(self):
         """
@@ -3311,7 +3483,7 @@ class SpriteEditor(QtW.QWidget):
         """
         Duplicate a frame's sourced tiles and return remapped piece copies
 
-        This has limitations tied to art_collect_tile_usage.
+        This has limitations tied to art_collect_clone_tile_usage.
         I'm working on solutions for this.
         """
         source_pieces = self.map_frames[frame_index]
@@ -3319,7 +3491,7 @@ class SpriteEditor(QtW.QWidget):
         if not pieces:
             return pieces
 
-        usage = self.art_collect_tile_usage(frame_index)
+        usage = self.art_collect_clone_tile_usage(frame_index)
         piece_copies = {id(source): copy for source, copy in zip(source_pieces, pieces)}
         base_tile = self.vram_spinbox.value()
 
