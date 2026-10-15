@@ -475,8 +475,9 @@ class SpriteEditor(QtW.QWidget):
         # Options above the table
         toolbar.addWidget(QtW.QLabel("Format:"))
 
-        # Map version dropdown (Add custom support)
-        self.map_dropdown.addItems(["Sonic 1", "Sonic 2", "Sonic 3K"])
+        # Load sprite format presets (mappings and DPLCs) (To-Do: Add custom support)
+        for format_id, preset in MAP_FORMATS.items():
+            self.map_dropdown.addItem(preset["name"], format_id)
         toolbar.addWidget(self.map_dropdown)
 
         # MapMacro checkbox
@@ -1318,9 +1319,9 @@ class SpriteEditor(QtW.QWidget):
 
         config["vram_index"] = self.vram_spinbox.value()
         config["palette_line"] = self.sprpal_spinbox.value()
-        config["format"] = (self.map_dropdown.currentIndex() + 1
+        config["format"] = (self.map_dropdown.currentData()
             if self.map_dropdown is not None
-            else config.get("format", 1))
+            else config.get("format", 1)) # Default to Sonic 1
 
         # Include empty lists and rows reserving palette lines
         config["palettes"] = [
@@ -1519,7 +1520,8 @@ class SpriteEditor(QtW.QWidget):
         if not isinstance(dplcs, dict):
             dplcs = {}
 
-        self.map_dropdown.setCurrentIndex(sprite_data.get("format", 1) - 1)
+        format_index = self.map_dropdown.findData(sprite_data.get("format", 1))
+        self.map_dropdown.setCurrentIndex(max(0, format_index))
 
         self.map_path_input.setText(resolve_path_str(mappings.get("path", "")))
         self.map_name_input.setText(mappings.get("label", ""))
@@ -3682,7 +3684,7 @@ class SpriteEditor(QtW.QWidget):
             path = self.project.resolve_asset_path(path)
 
             # Prepare data without changing anything in the editor
-            loaded = load_mappings(path, self.map_dropdown.currentIndex() + 1)
+            loaded = load_mappings(path, self.map_dropdown.currentData())
 
         except Exception as e:
             QtW.QMessageBox.warning(self, "Mapping Load Error",
@@ -3743,7 +3745,7 @@ class SpriteEditor(QtW.QWidget):
 
             # Build the complete file without writing it
             mapping_data = prepare_mappings(path, self.map_frames, self.frame_labels,
-                self.map_dropdown.currentIndex() + 1, map_label=self.map_name_input.text().strip(),
+                self.map_dropdown.currentData(), map_label=self.map_name_input.text().strip(),
                 use_macros=self.macro_cb.isChecked(), description=description)
 
         except Exception as e:

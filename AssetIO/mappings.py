@@ -2,23 +2,57 @@
 # For that reason, this is stored outside of the loading functions
 MAP_FORMATS = {
 	1: {
+        'name': 'Sonic 1',
 		'header_size': 1,
 		'piece_size': 5,
 		'attr_bytes': 2,
-		'x_bytes': 1
+		'x_bytes': 1,
+        'dplc': {
+            'header_size': 1,
+            'count_bias': 0,
+            'count_shift': 12,
+            'tile_shift': 0,
+        },
 	},
 	2: {
+        'name': 'Sonic 2',
 		'header_size': 2,
 		'piece_size': 8,
 		'attr_bytes': 4,
-		'x_bytes': 2
+		'x_bytes': 2,
+        'dplc': {
+            'header_size': 2,
+            'count_bias': 0,
+            'count_shift': 12,
+            'tile_shift': 0,
+        },
 	},
 	3: {
+        'name': 'S3K Player',
 		'header_size': 2,
 		'piece_size': 6,
 		'attr_bytes': 2,
-		'x_bytes': 2
-	}
+		'x_bytes': 2,
+        'dplc': {
+            'header_size': 2,
+            'count_bias': 0,
+            'count_shift': 12,
+            'tile_shift': 0,
+        },
+	},
+	4: {
+        'name': 'S3K Object',
+		'header_size': 2,
+		'piece_size': 6,
+		'attr_bytes': 2,
+		'x_bytes': 2,
+        'dplc': {
+            'header_size': 2,
+            'count_bias': 1,
+            'count_shift': 0,
+            'tile_shift': 4,
+        },
+	},
 }
 
 # Top-level mapping load function
