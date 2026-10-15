@@ -55,6 +55,52 @@ MAP_FORMATS = {
 	},
 }
 
+# To-Do: These should be global ASM parsing functions
+def split_asm_line(line):
+    label = None
+    clean_line = line.strip()   # is this needed (assuming lines are already stripped?)
+
+    # Separate label from the rest of the line
+    if ':' in clean_line:
+        label, clean_line = clean_line.split(':', 1)
+        label = label.strip()
+        clean_line = clean_line.strip()
+
+    # Separate command from data (split on whitespace)
+    parts = clean_line.split(None, 1)
+
+    # Return if the label is alone on this line
+    if not parts:
+        return label, '', ''
+
+    command = parts[0].lower()
+    data = parts[1].strip() if len(parts) == 2 else ''
+
+    # Return all contents in this line, split apart
+    return label, command, data
+
+def parse_asm_number(value):
+    value = value.strip()
+    sign = 1
+
+    # Check for sign operator, apply sign, and remove operator
+    if value.startswith(('+', '-')):
+        if value[0] == '-':
+            sign = -1
+        value = value[1:].strip()
+
+    # Convert hex value
+    if value.startswith('$'):
+        value = int(value[1:], 16)
+    # Convert binary value
+    elif value.startswith('%'):
+        value = int(value[1:], 2)
+    else:
+        value = int(value)
+
+    # Return signed int
+    return sign * value
+
 # Top-level mapping load function
 def load_mappings(path, map_version=1):
     if path.suffix.lower() == ".asm":
@@ -532,52 +578,6 @@ def extract_frame_pieces(data_array, start_ptr, piece_count, map_format):
     # Return frame list
     return frame_data
 
-# To-Do: These should be global ASM parsing functions
-def split_asm_line(line):
-    label = None
-    clean_line = line.strip()   # is this needed (assuming lines are already stripped?)
-
-    # Separate label from the rest of the line
-    if ':' in clean_line:
-        label, clean_line = clean_line.split(':', 1)
-        label = label.strip()
-        clean_line = clean_line.strip()
-
-    # Separate command from data (split on whitespace)
-    parts = clean_line.split(None, 1)
-
-    # Return if the label is alone on this line
-    if not parts:
-        return label, '', ''
-
-    command = parts[0].lower()
-    data = parts[1].strip() if len(parts) == 2 else ''
-
-    # Return all contents in this line, split apart
-    return label, command, data
-
-def parse_asm_number(value):
-    value = value.strip()
-    sign = 1
-
-    # Check for sign operator, apply sign, and remove operator
-    if value.startswith(('+', '-')):
-        if value[0] == '-':
-            sign = -1
-        value = value[1:].strip()
-
-    # Convert hex value
-    if value.startswith('$'):
-        value = int(value[1:], 16)
-    # Convert binary value
-    elif value.startswith('%'):
-        value = int(value[1:], 2)
-    else:
-        value = int(value)
-
-    # Return signed int
-    return sign * value
-
 # Top-level mapping save function
 def prepare_mappings(path, frames, frame_labels, map_version, *, map_label="", use_macros=False, description=""):
     """
@@ -1008,7 +1008,7 @@ def load_dplcs_macro(contents):
 
         # Find top-level DPLC label
         if command == 'mappingstable' and defined_label:
-            map_label = defined_label
+            dplc_label = defined_label
 
         # Find frame pointers to get their labels
         elif command.startswith('mappingstableentry') and data:
@@ -1018,7 +1018,7 @@ def load_dplcs_macro(contents):
                     frame_labels.append(entry)
 
         # Frame indexing
-        elif command == 'dplcHeader' and defined_label:
+        elif command == 'dplcheader' and defined_label:
             frame_starts[defined_label] = _i
 
     # With all labels found, create reverse lookup
@@ -1059,7 +1059,7 @@ def load_dplcs_macro(contents):
             _, command, data = split_asm_line(line)
 
             # Skip non-entry lines
-            if command != 'dplcEntry':
+            if command != 'dplcentry':
                 continue
 
             if not data:
@@ -1083,6 +1083,10 @@ def load_dplcs_macro(contents):
             # Reject invalid tile counts
             if not 1 <= tiles <= 16:
                 raise ValueError(f"DPLC frame '{label}' has an invalid tile count: {tiles}. Must be 1–16.")
+
+            # Reject invalid source tile
+            if not 0 <= location <= 0xFFF:
+                raise ValueError(f"DPLC frame '{label}' has an invalid source tile: {location}.")
 
             # Append raw entry data
             frame_data.append({

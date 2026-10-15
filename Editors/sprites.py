@@ -71,6 +71,10 @@ class SpriteEditor(QtW.QWidget):
         # That is done in art_add_entry
         self.vram_tiles = {}
 
+        # Used for DPLC rendering
+        self.static_vram_tiles = {}
+        self.dplc_vram_cache = {}
+
         # Tells the sprite map list when sprite data changes
         self.art_preview_revision = 0
 
@@ -79,15 +83,25 @@ class SpriteEditor(QtW.QWidget):
 
         # Loaded file associated with each art row's path widget
         self.art_buffer_paths = {}
+        self.art_buffer_compressions = {}  # Compression used when each buffer was loaded
 
         # File associated with the initialized mapping buffer
         self.mapping_buffer_path = None
 
-        # Stores the parsed mapping data in memory (Not loading DPLCs right now)
+        # Stores the parsed mapping data in memory
         self.map_frames = []
 
         # Frame labels (I'll work this into map_frames later)
         self.frame_labels = []
+
+        # Stores the parsed DPLC data in memory
+        self.dplc_frames = []
+        # Frame labels (I'll work this into map_frames later)
+        self.dplc_frame_labels = []
+
+        # File associated with the initialized DPLC buffer
+        self.dplc_buffer_path = None
+        self.dplc_buffer_format = None
 
         # Sprite viewer canvas
         self.sprite_canvas_width = 256
@@ -151,7 +165,7 @@ class SpriteEditor(QtW.QWidget):
         # ui_build_mappings_tab()
         self.btn_map_add = create_pushbutton("Add", tooltip="Add sprite mappings",
             width=50, on_clicked=self.mapping_entry_new)
-        self.btn_map_load = create_pushbutton("Load", tooltip="Load added mappings",
+        self.btn_map_load = create_pushbutton("Load", tooltip="Load configured mappings (and DPLCs)",
             width=50, on_clicked=self.mapping_entry_load, enabled=False)
         self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data",
             width=50, on_clicked=self.mapping_entry_save, enabled=False)
@@ -165,6 +179,9 @@ class SpriteEditor(QtW.QWidget):
         self.map_name_input = QtW.QLineEdit()
         self.dplc_path_input = QtW.QLineEdit()
         self.dplc_name_input = QtW.QLineEdit()
+
+        # DPLC status label (Updates with usage)
+        self.dplc_status_label = QtW.QLabel()
 
         # ui_build_palettes_tab()
         self.btn_pal_add = create_pushbutton("Add", tooltip="Add color palettes",
@@ -265,7 +282,10 @@ class SpriteEditor(QtW.QWidget):
         self.ui_init()
         self.sprite_refresh_editing_ui()
 
-        self.vram_spinbox.valueChanged.connect(self.sprite_refresh_previews)
+        self.vram_spinbox.valueChanged.connect(self.art_refresh_vram)
+        self.dplc_cb.toggled.connect(self._on_dplc_settings_changed)
+        self.map_dropdown.currentIndexChanged.connect(self._on_dplc_settings_changed)
+        self.dplc_path_input.textChanged.connect(self._on_dplc_settings_changed)
         self.sprpal_spinbox.valueChanged.connect(self.sprite_refresh_previews)
         self.origin_checkbox.toggled.connect(self.render_sprite_frame)
 
@@ -548,6 +568,7 @@ class SpriteEditor(QtW.QWidget):
         self.dplc_cb.toggled.connect(lambda enabled: table.setRowHidden(1, not enabled))
 
         layout.addWidget(table, stretch=1)
+        layout.addWidget(self.dplc_status_label)
         self.mapping_update_file_controls()
 
         return tab
@@ -1010,6 +1031,10 @@ class SpriteEditor(QtW.QWidget):
         if prepared_mappings is None:
             return False
 
+        prepared_dplcs = self.dplc_prepare_load()
+        if prepared_dplcs is None:
+            return False
+
         # Prevent viewing settings from triggering early renders
         vram_blocked = self.vram_spinbox.blockSignals(True)
         palette_blocked = self.sprpal_spinbox.blockSignals(True)
@@ -1022,7 +1047,7 @@ class SpriteEditor(QtW.QWidget):
             # Apply prepared buffers without rendering
             self.palette_entry_load(prepared=prepared_palettes, refresh=False)
             self.art_entry_load(prepared=prepared_art, refresh=False)
-            self.mapping_entry_load(prepared=prepared_mappings, refresh=False)
+            self.mapping_entry_load(prepared=prepared_mappings, prepared_dplcs=prepared_dplcs, refresh=False)
 
         finally:
             self.vram_spinbox.blockSignals(vram_blocked)
@@ -1570,7 +1595,9 @@ class SpriteEditor(QtW.QWidget):
     # Sprite Functions
     # --------------------------------------------------
     def sprite_clear_data(self, *, clear_file_manager=True):
-        """Clear loaded assets and reset previews, optionally clearing file manager entries."""
+        """
+        Clear loaded assets and reset previews, optionally clearing file manager entries.
+        """
         # Clear sprite piece selection
         self.sprite_clear_selection(refresh=False)
 
@@ -1583,13 +1610,20 @@ class SpriteEditor(QtW.QWidget):
 
         # Clear art buffers and their file associations
         self.art_buffer_paths.clear()
+        self.art_buffer_compressions.clear()
+        self.dplc_frames.clear()
+        self.dplc_frame_labels.clear()
+        self.dplc_buffer_path = None
+        self.dplc_buffer_format = None
+        self.dplc_vram_cache.clear()
+        self.static_vram_tiles = {}
 
         # Clear Art Tiles
         for _, _, _, _, art_tiles in self.art_rows:
             art_tiles.clear()
 
         # Flush VRAM and invalidate cached previews
-        self.vram_tiles.clear()
+        self.vram_tiles = {}
         self.art_preview_revision += 1
 
         # Invalidate stale mapping file association
@@ -2063,6 +2097,11 @@ class SpriteEditor(QtW.QWidget):
         Update frame controls and canvas.
         Also refresh thumbnails if needed.
         """
+        # Refresh art only if DPLCs are used
+        if self.dplc_cb.isChecked():
+            self.dplc_refresh_vram()
+            self.render_art_tiles()
+
         self.sprite_refresh_frame_name()
         self.sprite_clear_selection()
         self.render_sprite_frame()
@@ -2685,7 +2724,7 @@ class SpriteEditor(QtW.QWidget):
         if prepared is None:
             return False
 
-        load_jobs, loaded_paths = prepared
+        load_jobs, loaded_paths, loaded_compressions = prepared
 
         # Preserve each row's buffer reference
         for art_tiles, loaded_tiles in load_jobs:
@@ -2693,6 +2732,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Set path associations and refresh VRAM
         self.art_buffer_paths = loaded_paths
+        self.art_buffer_compressions = loaded_compressions # Store compression (DPLC function reads this for buffer 1)
         self.art_refresh_vram(refresh=refresh)
 
         return True
@@ -2743,16 +2783,17 @@ class SpriteEditor(QtW.QWidget):
         Read and decompress art for eventual loading.
 
         Returns:
-            (load_jobs, loaded_paths) on success.
+            (load_jobs, loaded_paths, loaded_compressions) on success.
             None if preparation fails.
             Blank entries receive empty buffers when applied.
         """
         load_jobs = []
         loaded_paths = {}
+        loaded_compressions = {}
         seen_paths = set()
 
         # Loop for each filepath added
-        for path_input, comp_combo, _, _, art_tiles in self.art_rows:
+        for row_index, (path_input, comp_combo, _, _, art_tiles) in enumerate(self.art_rows):
             file_path_str = path_input.text().strip()
 
             # Clear for unassigned entries
@@ -2774,19 +2815,26 @@ class SpriteEditor(QtW.QWidget):
                 with open(path, "rb") as f:
                     raw_data = f.read()
 
+                # DPLCs read directly from uncompressed source art in buffer 1
+                compression = comp_combo.currentText()
+                if row_index == 0 and self.dplc_cb.isChecked() and compression != "Uncompressed":
+                    raise ValueError("DPLCs require uncompressed art in buffer 1. "
+                        "Choose Uncompressed and load an uncompressed art file.")
+
                 # Unpack tiles and load into buffer storage
-                loaded_tiles = decode_art(raw_data, comp_combo.currentText())
+                loaded_tiles = decode_art(raw_data, compression)
 
                 # Queue buffer to be loaded
                 load_jobs.append((art_tiles, loaded_tiles))
                 loaded_paths[path_input] = path
+                loaded_compressions[path_input] = compression
 
             except Exception as e:
                 QtW.QMessageBox.warning(self, "Art Load Error",
                     f"Could not load art file {path.name}:\n{str(e)}")
                 return None
 
-        return load_jobs, loaded_paths
+        return load_jobs, loaded_paths, loaded_compressions
 
     def art_prepare_save(self):
         """
@@ -2915,6 +2963,7 @@ class SpriteEditor(QtW.QWidget):
 
         artloc_spin.valueChanged.connect(self.art_refresh_vram)
         count_spin.valueChanged.connect(self.art_refresh_vram)
+        comp_combo.currentTextChanged.connect(self.art_refresh_vram)
 
     def art_remove_entry(self, row=None):
         if row is None:
@@ -2926,6 +2975,7 @@ class SpriteEditor(QtW.QWidget):
         # Remove the row and its file association
         path_input, _, _, _, _ = self.art_rows.pop(row)
         self.art_buffer_paths.pop(path_input, None)
+        self.art_buffer_compressions.pop(path_input, None)
         self.art_file_table.removeRow(row)
 
         if self.art_rows:
@@ -2979,7 +3029,7 @@ class SpriteEditor(QtW.QWidget):
         # "Ready" = mappings and art tile files are present and loaded in.
         buffer_index = self.viewer_art_combo.currentIndex() - 1
         ready = (bool(self.map_frames) and 0 <= buffer_index < len(self.art_rows)
-            and bool(self.art_rows[buffer_index][4]))
+            and bool(self.art_rows[buffer_index][4]) and not self.dplc_cb.isChecked())
 
         self.arrange_tiles.setEnabled(ready)
         self.strip_tiles.setEnabled(ready)
@@ -2987,26 +3037,35 @@ class SpriteEditor(QtW.QWidget):
 
     def art_refresh_vram(self, *, refresh=True):
         """
-        Load each file's source tiles into VRAM
+        Load each file's source tiles into VRAM.
+
+        Buffer 1 is dynamic if DPLCs are used, static otherwise.
+        Buffers 2 and 3 are always static.
         """
-        self.vram_tiles.clear()
+        # Clear static VRAM
+        self.static_vram_tiles = {}
 
-        for _, _, offset_spin, count_spin, art_tiles in self.art_rows:
-            start = offset_spin.value()
-            requested_count = count_spin.value()
+        for row_index, (_, _, offset_spin, count_spin, art_tiles) in enumerate(self.art_rows):
+            # Buffer 1 is dynamic if DPLCs are enabled
+            dynamic_source = self.dplc_cb.isChecked() and row_index == 0
 
-            # If count == 0, load all tiles that will fit into VRAM
-            if requested_count == 0:
-                requested_count = len(art_tiles)
+            offset_spin.setEnabled(not dynamic_source)
+            count_spin.setEnabled(not dynamic_source)
 
-            preview_count = min(requested_count, len(art_tiles), 2048 - start)
+            if dynamic_source:
+                continue  # The complete first buffer is source art, not a static upload
 
             # Copy from source to VRAM
+            start = offset_spin.value()
+            requested_count = count_spin.value() or len(art_tiles) # If count == 0, load all tiles
+            preview_count = min(requested_count, len(art_tiles), 2048 - start)
             for source_index in range(preview_count):
-                self.vram_tiles[start + source_index] = (art_tiles[source_index].copy())
+                self.static_vram_tiles[start + source_index] = art_tiles[source_index].copy()
 
         # Invalidate cached previews after rebuilding VRAM
         self.art_preview_revision += 1
+        self.dplc_vram_cache.clear()
+        self.dplc_refresh_vram()
         self.art_update_tile_controls()
 
         # Whole-build loading can defer refreshing
@@ -3173,13 +3232,13 @@ class SpriteEditor(QtW.QWidget):
         since Frame cloning uses the old collector instead (which checks all loaded art buffers)
 
         Limitations:
-            DPLC loaded art is currently not supported (DPLCs aren't supported yet anyway)
-            Art entries overlapping one another in VRAM has no effect
+            DPLC source tile remapping is not supported by art optimization.
+            Art entry overlapping in VRAM has no effect.
                 - To-Do: Might modify this to flag overlapped tiles for deletion (Optional)
             Cross-buffer pieces may require manual VRAM adjustments after optimization.
         """
         # This will add another layer to tile remapping. For now, it's disabled
-        # After DPLCs are added, I'll revisit this
+        # DPLC-aware source tile remapping will be added separately
         if self.dplc_cb.isChecked():
             raise ValueError("Disable DPLCs before optimizing art. DPLC tile remapping is not implemented yet.")
 
@@ -3330,12 +3389,12 @@ class SpriteEditor(QtW.QWidget):
         To-Do: Consider using the new collector for cloning, and call it for each buffer here.
 
         Limitations:
-            DPLC loaded art is currently not supported (DPLCs aren't supported yet anyway)
+            DPLC source tile remapping is not supported by art optimization.
             Art entries CANNOT overlap one another in VRAM (Might be resolved)
             Pieces cannot be made up of tiles from multiple art file entries (Need to test)
         """
         # This will add another layer to tile remapping. For now, it's disabled
-        # After DPLCs are added, I'll revisit this
+        # DPLC-aware source tile remapping will be added separately.
         if self.dplc_cb.isChecked():
             raise ValueError("Disable DPLCs before optimizing art. DPLC tile remapping "
                 "is not implemented yet.")
@@ -3594,9 +3653,9 @@ class SpriteEditor(QtW.QWidget):
             self.mapping_set_buffer(path, [], [],
                 self.map_name_input.text().strip(), self.macro_cb.isChecked())
 
-    def mapping_entry_load(self, *, prepared=None, refresh=True):
+    def mapping_entry_load(self, *, prepared=None, prepared_dplcs=None, refresh=True):
         """
-        Apply mapping data, preparing it first unless supplied.
+        Prepare and apply mappings (and DPLCs) before refreshing VRAM.
 
         Returns:
             True if successful, False if preparation fails.
@@ -3609,14 +3668,33 @@ class SpriteEditor(QtW.QWidget):
         if prepared is None:
             return False
 
-        # Commit data and association together
-        self.mapping_set_buffer(*prepared, refresh=refresh)
+        # Prepare cues before replacing either loaded buffer.
+        if prepared_dplcs is None:
+            prepared_dplcs = self.dplc_prepare_load()
 
-        # Report direct loads of configured files
+        # Preparation failed/cancelled
+        if prepared_dplcs is None:
+            return False
+
+        self.dplc_set_buffer(*prepared_dplcs)
+        self.mapping_set_buffer(*prepared, refresh=False)
+        self.art_refresh_vram(refresh=False)
+
+        if refresh:
+            self.render_art_tiles()
+            self._on_sprite_frame_changed(refresh_thumbnails=True)
+
+        # Report both assets, including a DPLC-only load before art is available
         path = prepared[0]
-        if refresh and path is not None:
-            QtW.QMessageBox.information(self, "Mappings Loaded",
-                f"Successfully loaded {len(self.map_frames)} frames from {path.name}.")
+        if refresh and (path is not None or self.dplc_buffer_path is not None):
+            details = []
+
+            if path is not None:
+                details.append(f"Mapping frames: {len(self.map_frames)} ({path.name})")
+            if self.dplc_buffer_path is not None:
+                details.append(f"DPLC frames: {len(self.dplc_frames)} ({self.dplc_buffer_path.name})")
+
+            QtW.QMessageBox.information(self, "Sprite Data Loaded", "\n".join(details))
 
         return True
 
@@ -3662,7 +3740,7 @@ class SpriteEditor(QtW.QWidget):
 
     def mapping_prepare_load(self):
         """
-        Parse configured mappings without changing the editor.
+        Parse configured mappings without changing the currently loaded build.
 
         Returns:
             (path, frames, frame_labels, map_label, use_macros) on success.
@@ -3780,8 +3858,9 @@ class SpriteEditor(QtW.QWidget):
 
         self.map_file_table.clearSelection()
 
-        # Empty the buffer
+        # Empty the buffers
         self.mapping_set_buffer(None, [], [], "", False)
+        self.dplc_set_buffer(None, [], [], "", None)
 
         # This re-enables the Add button
         self.mapping_update_file_controls()
@@ -3817,7 +3896,8 @@ class SpriteEditor(QtW.QWidget):
         has_asset = bool(self.map_path_input.text().strip())
 
         self.btn_map_add.setEnabled(not has_asset)
-        self.btn_map_load.setEnabled(has_asset)
+        has_dplcs = self.dplc_cb.isChecked() and bool(self.dplc_path_input.text().strip())
+        self.btn_map_load.setEnabled(has_asset or has_dplcs)
         self.btn_map_save.setEnabled(has_asset)
 
         # Always available to reset the table
@@ -3828,14 +3908,166 @@ class SpriteEditor(QtW.QWidget):
         project_dir = self.project.root_dir
         start_dir = str(project_dir) if project_dir else ""
 
-        # Save dialog for new DPLC file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Select DPLC File",
+        # DPLCs are loaded from an existing file; saving is not implemented yet.
+        file_path, _ = QtW.QFileDialog.getOpenFileName(self, "Select DPLC File",
             start_dir, "DPLC Files (*.asm *.bin);;All Files (*)")
 
         # If successful, store DPLC filepath
         if file_path:
             path = self.project.resolve_asset_path(file_path)
             line_edit.setText(str(path))
+
+
+    # --------------------------------------------------
+    # DPLC Handling
+    # --------------------------------------------------
+    def dplc_prepare_load(self):
+        """
+        Parse configured DPLCs without changing the currently loaded build.
+
+        Returns:
+            (path, frames, frame_labels, map_label, use_macros) on success.
+            An empty DPLC buffer if no file is configured.
+            None if preparation fails.
+        """
+        # To-Do: Make this a global variable, or a constant... not sure which just yet
+        empty = (None, [], [], "", None)
+
+        # Stop now if DPLC's are not enabled
+        if not self.dplc_cb.isChecked():
+            return empty
+
+        file_path_str = self.dplc_path_input.text().strip()
+
+        # For unconfigured mappings, use an empty buffer
+        if not file_path_str:
+            return empty
+
+        path = Path(file_path_str)
+
+        try:
+            # Resolve relative paths against the project directory
+            path = self.project.resolve_asset_path(path)
+
+            # Prepare data without changing anything in the editor
+            loaded = load_dplcs(path, self.map_dropdown.currentData())
+
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "DPLC Load Error",
+                f"Could not load DPLCs from {path.name}:\n{e}")
+            return None
+
+        return path, *loaded
+
+    def dplc_set_buffer(self, path, frames, labels, table_label, _use_macros):
+        """
+        Install parsed cues independently of whether source art is loaded.
+
+        DPLCs share the same 5 parameter structure as mappings, but the final parameter goes unused.
+        It will be used later once DPLC saving is implemented.
+        """
+        self.dplc_buffer_path = path
+        self.dplc_frames = frames
+        self.dplc_frame_labels = labels
+
+        if path is not None:
+            self.dplc_name_input.setText(table_label)
+            self.dplc_buffer_format = self.map_dropdown.currentData()
+        else:
+            self.dplc_buffer_format = None
+
+        self.dplc_vram_cache.clear()
+        self.art_preview_revision += 1
+
+    def dplc_get_frame_vram(self, frame_index):
+        """
+        Return an independent (tiles, status) snapshot for one frame.
+
+        Buffer 1 supplies source indices starting at zero; its static offset
+        and count don't apply. Reject invalid frames before copying any of their dynamic tiles.
+        """
+        # Stop now if DPLC's are not enabled
+        if not self.dplc_cb.isChecked():
+            return self.static_vram_tiles, ""
+
+        cached = self.dplc_vram_cache.get(frame_index)
+        if cached is not None:
+            return cached
+
+        tiles = self.static_vram_tiles.copy()
+        status = ""
+        source_tiles = []
+
+        # Update DPLC status message
+        if self.dplc_buffer_path is None:
+            status = "Load a DPLC file to populate frame VRAM."
+        elif self.dplc_buffer_format != self.map_dropdown.currentData():
+            status = "The format has changed. Reload mappings and DPLCs."
+
+        else:
+            try:
+                # Resolve relative paths against the project directory
+                configured_path = self.project.resolve_asset_path(self.dplc_path_input.text().strip())
+            except (OSError, ValueError):
+                configured_path = None
+
+            if configured_path != self.dplc_buffer_path:
+                status = "The DPLC path has changed. Load the configured DPLC file."
+            elif not 0 <= frame_index < len(self.dplc_frames):
+                status = f"No DPLC frame exists for mapping frame {frame_index}."
+            elif not self.art_rows or not self.art_rows[0][4]:
+                status = "Waiting for uncompressed art in buffer 1."
+            else:
+                path_input, compression, _, _, source_tiles = self.art_rows[0]
+                if (compression.currentText() != "Uncompressed"
+                    or self.art_buffer_compressions.get(path_input) != "Uncompressed"):
+                    status = "DPLCs require buffer 1 to be loaded from uncompressed art."
+
+        if not status:
+            cues = self.dplc_frames[frame_index]
+            destination = self.vram_spinbox.value()
+
+            for cue in cues:
+                source_start = cue['tile']
+
+                # Stop if this entry starts AFTER the source buffer
+                if not source_start < len(source_tiles):
+                    status = (f"DPLC frame {frame_index} requests source tiles "
+                              f"starting at tile offset ${cue['tile']:X}, "
+                              f"which is AFTER the end of the source buffer. "
+                              "No DPLC tiles were loaded for this frame.")
+                    break
+
+                # Load only the tiles available in the source and destination
+                available_count = min(cue['count'], len(source_tiles) - source_start, 2048 - destination)
+
+                for source_index in range(source_start, source_start + available_count):
+                    # Copy tiles from buffer 1 to VRAM
+                    tiles[destination] = source_tiles[source_index].copy()
+                    destination += 1
+
+                # An incomplete entry ends loading for this frame
+                if available_count < cue['count']:
+                    break
+
+        result = (tiles, status)
+        self.dplc_vram_cache[frame_index] = result
+
+        return result
+
+    def dplc_refresh_vram(self):
+        """
+        Bring only the selected frame's tiles to VRAM.
+        """
+        self.vram_tiles, status = self.dplc_get_frame_vram(self.frame_spinbox.value())
+        self.dplc_status_label.setText(status)
+
+    def _on_dplc_settings_changed(self, *_):
+        """
+        Rebuild previews when DPLC mode, source path or format changes.
+        """
+        self.mapping_update_file_controls()
+        self.art_refresh_vram()
 
 
     # --------------------------------------------------
@@ -4278,9 +4510,11 @@ class SpriteEditor(QtW.QWidget):
         self.vram_label.setPixmap(scaled_pixmap)
 
     def sprite_build_frame_image(self, frame_idx, show_overlays=False):
-        # Synchronize shared sources once before composing the frame.
-        self.renderer.prepare(self.vram_tiles, self.palette_colors,
+        # Sync shared sources once before composing the frame
+        tiles, _ = self.dplc_get_frame_vram(frame_idx)
+        self.renderer.prepare(tiles, self.palette_colors,
             art_revision=self.art_preview_revision)
+
         frame_data = self.map_frames[frame_idx] if 0 <= frame_idx < len(self.map_frames) else []
         base_tile = self.vram_spinbox.value()
         base_palette = self.sprpal_spinbox.value()
