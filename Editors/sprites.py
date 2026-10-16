@@ -102,6 +102,7 @@ class SpriteEditor(QtW.QWidget):
         # File associated with the initialized DPLC buffer
         self.dplc_buffer_path = None
         self.dplc_buffer_format = None
+        self.dplc_use_macros = False
 
         # Sprite viewer canvas
         self.sprite_canvas_width = 256
@@ -167,13 +168,15 @@ class SpriteEditor(QtW.QWidget):
             width=50, on_clicked=self.mapping_entry_new)
         self.btn_map_load = create_pushbutton("Load", tooltip="Load configured mappings (and DPLCs)",
             width=50, on_clicked=self.mapping_entry_load, enabled=False)
-        self.btn_map_save = create_pushbutton("Save", tooltip="Save mappings data",
+        self.btn_map_save = create_pushbutton("Save", tooltip="Save configured mappings (and DPLCs)",
             width=50, on_clicked=self.mapping_entry_save, enabled=False)
         self.btn_map_remove = create_pushbutton("Remove", tooltip="Remove mappings data",
             width=50, on_clicked=lambda: self.mapping_remove_entry(), enabled=False)
         self.map_dropdown = QtW.QComboBox()
         self.macro_cb = QtW.QCheckBox("Save with Macros")
+        self.macro_cb.setToolTip("Use macros for mapping and DPLC ASM output.")
         self.dplc_cb = QtW.QCheckBox("Use DPLCs")
+        self.dplc_cb.setToolTip("Use DPLCs when loading tiles from the first art file.")
         self.map_file_table = QtW.QTableWidget(2, 3)
         self.map_path_input = QtW.QLineEdit()
         self.map_name_input = QtW.QLineEdit()
@@ -1162,6 +1165,10 @@ class SpriteEditor(QtW.QWidget):
         if prepared_mappings is None:
             return False
 
+        prepared_dplcs = self.dplc_prepare_save()
+        if prepared_dplcs is None:
+            return False
+
         # Collect every destination, including the project JSON
         # Here we check destinations to avoid cross-contamination
         # (writing different kinds of files to the same destination)
@@ -1178,6 +1185,10 @@ class SpriteEditor(QtW.QWidget):
         if prepared_mappings:
             path, _ = prepared_mappings
             destinations.append((path, "Mappings"))
+
+        if prepared_dplcs:
+            path, _ = prepared_dplcs
+            destinations.append((path, "DPLCs"))
 
         # Reject destinations shared by multiple files
         seen_paths = {}
@@ -1201,8 +1212,8 @@ class SpriteEditor(QtW.QWidget):
         if not self.art_entry_save(prepared=prepared_art):
             return False
 
-        # Save mappings
-        if not self.mapping_entry_save(prepared=prepared_mappings):
+        # Save mappings and DPLCs
+        if not self.mapping_entry_save(prepared=prepared_mappings, prepared_dplcs=prepared_dplcs):
             return False
 
         try:
@@ -1376,6 +1387,7 @@ class SpriteEditor(QtW.QWidget):
                 "path": stored_path(map_path),
                 "label": self.map_name_input.text().strip(),
             }
+        if map_path or self.dplc_path_input.text().strip():
             config["dplcs"] = {
                 "enabled": self.dplc_cb.isChecked(),
                 "path": stored_path(self.dplc_path_input.text().strip()),
@@ -1615,6 +1627,7 @@ class SpriteEditor(QtW.QWidget):
         self.dplc_frame_labels.clear()
         self.dplc_buffer_path = None
         self.dplc_buffer_format = None
+        self.dplc_use_macros = False
         self.dplc_vram_cache.clear()
         self.static_vram_tiles = {}
 
@@ -2844,7 +2857,7 @@ class SpriteEditor(QtW.QWidget):
         Returns:
             (save_jobs, saved_paths) when ready to save.
             () if no art files are configured.
-            None if preparation fails or is canceled.
+            None if preparation fails or is cancelled.
         """
         save_jobs = []
         seen_paths = set()
@@ -3678,6 +3691,11 @@ class SpriteEditor(QtW.QWidget):
 
         self.dplc_set_buffer(*prepared_dplcs)
         self.mapping_set_buffer(*prepared, refresh=False)
+
+        # Set to use DPLCs
+        if prepared[0] is None and prepared_dplcs[0] is not None:
+            self.macro_cb.setChecked(self.dplc_use_macros)
+
         self.art_refresh_vram(refresh=False)
 
         if refresh:
@@ -3698,44 +3716,62 @@ class SpriteEditor(QtW.QWidget):
 
         return True
 
-    def mapping_entry_save(self, *, prepared=None):
+    def mapping_entry_save(self, *, prepared=None, prepared_dplcs=None):
         """
-        Save sprite mappings, preparing them first unless a result is supplied.
+        Prepare and save configured mappings (and DPLCs).
 
         Returns:
             True if saved successfully or no file is configured.
             False on failure or cancellation.
+            Earlier writes are not rolled back if a later write fails.
         """
-        # If not prepared beforehand, do it here
+        # If mappings are not prepared beforehand, do it here
         if prepared is None:
             prepared = self.mapping_prepare_save()
 
-        # Preparation failed or was canceled
+        # Preparation failed/cancelled
         if prepared is None:
             return False
 
-        # No mapping file is configured
-        if not prepared:
-            return True
+        # If DPLCs are not prepared beforehand, do it here
+        if prepared_dplcs is None:
+            prepared_dplcs = self.dplc_prepare_save()
 
-        path, mapping_data = prepared
-
-        # Write only after mappings are prepared
-        try:
-            # Write the prepared file
-            path.parent.mkdir(parents=True, exist_ok=True)
-            save_mappings(path, mapping_data)
-
-        except Exception as e:
-            QtW.QMessageBox.warning(self, "Mapping Save Error",
-                f"Could not save mappings to {path.name}:\n{str(e)}")
+        # Preparation failed/cancelled
+        if prepared_dplcs is None:
             return False
 
-        # Adopt the destination only after a successful save
-        self.mapping_buffer_path = path
+        # Reject a shared destination before writing either file
+        if prepared and prepared_dplcs and prepared[0] == prepared_dplcs[0]:
+            QtW.QMessageBox.warning(self, "Save Error",
+                "Mappings and DPLCs cannot use the same save destination.")
+            return False
 
-        QtW.QMessageBox.information(self, "Mappings Saved",
-            f"Successfully saved {len(self.map_frames)} frames to {path.name}.")
+        details = []
+        if prepared:
+            path, mapping_data = prepared
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                save_mappings(path, mapping_data)
+            except Exception as e:
+                QtW.QMessageBox.warning(self, "Mapping Save Error",
+                    f"Could not save mappings to {path.name}:\n{e}")
+                return False
+
+            # Adopt the destination only after a successful save
+            self.mapping_buffer_path = path
+            details.append(f"Mapping frames: {len(self.map_frames)} ({path.name})")
+
+        if not self.dplc_entry_save(prepared=prepared_dplcs, notify=False):
+            return False
+
+        if prepared_dplcs:
+            path, _ = prepared_dplcs
+            details.append(f"DPLC frames: {len(self.dplc_frames)} ({path.name})")
+
+        if details:
+            QtW.QMessageBox.information(self, "Sprite Data Saved", "\n".join(details))
+
         return True
 
     def mapping_prepare_load(self):
@@ -3898,7 +3934,7 @@ class SpriteEditor(QtW.QWidget):
         self.btn_map_add.setEnabled(not has_asset)
         has_dplcs = self.dplc_cb.isChecked() and bool(self.dplc_path_input.text().strip())
         self.btn_map_load.setEnabled(has_asset or has_dplcs)
-        self.btn_map_save.setEnabled(has_asset)
+        self.btn_map_save.setEnabled(has_asset or has_dplcs)
 
         # Always available to reset the table
         self.btn_map_remove.setEnabled(True)
@@ -3908,9 +3944,10 @@ class SpriteEditor(QtW.QWidget):
         project_dir = self.project.root_dir
         start_dir = str(project_dir) if project_dir else ""
 
-        # DPLCs are loaded from an existing file; saving is not implemented yet.
-        file_path, _ = QtW.QFileDialog.getOpenFileName(self, "Select DPLC File",
-            start_dir, "DPLC Files (*.asm *.bin);;All Files (*)")
+        # Select an existing source or a new save destination without writing it
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Select DPLC File",
+            start_dir, "DPLC Files (*.asm *.bin);;All Files (*)",
+            options=QtW.QFileDialog.Option.DontConfirmOverwrite)
 
         # If successful, store DPLC filepath
         if file_path:
@@ -3921,6 +3958,55 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     # DPLC Handling
     # --------------------------------------------------
+    def dplc_entry_save(self, *, prepared=None, notify=True):
+        """
+        Write prepared DPLCs and adopt the destination.
+
+        In a combined save, preparation happens in mapping_entry_save.
+        Since DPLCs aren't currently saved independently, these checks are redundant.
+        This will change later when I modify map/DPLC saving to only save when edited.
+        """
+        # If DPLCs are not prepared beforehand, do it here
+        if prepared is None:
+            prepared = self.dplc_prepare_save()
+
+        # Preparation failed/cancelled
+        if prepared is None:
+            return False
+
+        # No DPLC file is configured
+        if not prepared:
+            return True
+
+        path, dplc_data = prepared
+
+        # Write only after DPLCs are prepared
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            save_dplcs(path, dplc_data)
+
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "DPLC Save Error",
+                f"Could not save DPLCs to {path.name}:\n{e}")
+            return False
+
+        format_id = self.map_dropdown.currentData()
+        association_changed = path != self.dplc_buffer_path or format_id != self.dplc_buffer_format
+
+        # Adopt the destination only after a successful save
+        self.dplc_buffer_path = path
+        self.dplc_buffer_format = format_id
+        self.dplc_use_macros = path.suffix.lower() == ".asm" and self.macro_cb.isChecked()
+
+        if association_changed:
+            self.art_refresh_vram()
+
+        if notify:
+            QtW.QMessageBox.information(self, "DPLCs Saved",
+                f"Successfully saved {len(self.dplc_frames)} frames to {path.name}.")
+
+        return True
+
     def dplc_prepare_load(self):
         """
         Parse configured DPLCs without changing the currently loaded build.
@@ -3959,16 +4045,83 @@ class SpriteEditor(QtW.QWidget):
 
         return path, *loaded
 
-    def dplc_set_buffer(self, path, frames, labels, table_label, _use_macros):
+    def dplc_prepare_save(self):
+        """
+        Validate DPLCs and prepare file contents without writing.
+
+        Returns:
+            (path, data) when ready to save.
+            () when disabled/unconfigured.
+            None if preparation fails or is canceled.
+
+            Note: Cue ranges do not need to fit the currently loaded source art.
+        """
+        # if DPLCs are disabled, stop here
+        if not self.dplc_cb.isChecked():
+            return ()
+
+        # If a filepath is empty, don't save
+        file_path_str = self.dplc_path_input.text().strip()
+        if not file_path_str:
+            return ()
+
+        # Require a loaded or initialized DPLC buffer
+        if self.dplc_buffer_path is None:
+            QtW.QMessageBox.warning(self, "DPLC Save Error",
+                "Load DPLCs for this build before saving.")
+            return None
+
+        # Require at least one frame; frames may contain no DPLC entries
+        if not self.dplc_frames:
+            QtW.QMessageBox.warning(self, "DPLC Save Error",
+                "Load at least one DPLC frame before saving.")
+            return None
+
+        path = Path(file_path_str)
+
+        try:
+            # Resolve the destination
+            path = self.project.resolve_asset_path(path)
+
+            if path.is_dir():
+                raise IsADirectoryError(f"Save destination is a directory: {path}")
+
+            # Confirm a changed destination
+            if path != self.dplc_buffer_path:
+                if not self.file_confirm_overwrites([path]):
+                    return None
+
+            # Collect the optional ASM description before writing
+            description = ""
+            if path.suffix.lower() == ".asm":
+                description, accepted = QtW.QInputDialog.getText(self, "DPLC Description",
+                    "Enter an optional description for the DPLCs:", text="")
+                if not accepted:
+                    return None
+
+            # Build the complete file without writing it
+            dplc_data = prepare_dplcs(path, self.dplc_frames, self.dplc_frame_labels,
+                self.map_dropdown.currentData(), dplc_label=self.dplc_name_input.text().strip(),
+                use_macros=self.macro_cb.isChecked(), description=description)
+
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "DPLC Save Error",
+                f"Could not prepare DPLCs for {path.name}:\n{e}")
+            return None
+
+        return path, dplc_data
+
+    def dplc_set_buffer(self, path, frames, labels, table_label, use_macros):
         """
         Install parsed cues independently of whether source art is loaded.
 
-        DPLCs share the same 5 parameter structure as mappings, but the final parameter goes unused.
-        It will be used later once DPLC saving is implemented.
+        Retain the loaded macro flag; the shared Save with Macros checkbox
+        controls the output syntax when saving mappings and DPLCs.
         """
         self.dplc_buffer_path = path
         self.dplc_frames = frames
         self.dplc_frame_labels = labels
+        self.dplc_use_macros = bool(use_macros)
 
         if path is not None:
             self.dplc_name_input.setText(table_label)
