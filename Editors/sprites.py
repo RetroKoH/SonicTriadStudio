@@ -1966,12 +1966,39 @@ class SpriteEditor(QtW.QWidget):
     # Sprite: Frame Functions
     # --------------------------------------------------
     # Add Frame and Clone Frame call this function
-    def sprite_new_frame(self, name, pieces):
+    def sprite_new_frame(self, name, pieces, dplc_entries=None):
+        # Verify frame count with DPLCs
+        if not self.sprite_check_dplc_frames():
+            return False
+
         new_index = len(self.map_frames)
 
         # Keep frame data and names aligned
         self.map_frames.append(pieces)
         self.frame_labels.append(name)
+
+        # Keep DPLC frames aligned to mappings
+        if self.dplc_buffer_path is not None:
+            # Generate a unique DPLC label
+            base_name = f"D_{name}"
+            dplc_name = base_name
+            copy_number = 2
+
+            used_labels = set(self.dplc_frame_labels)
+            used_labels.update(label + "_End" for label in self.dplc_frame_labels)
+            used_labels.add(self.dplc_name_input.text().strip())
+
+            while dplc_name in used_labels or dplc_name + "_End" in used_labels:
+                dplc_name = f"{base_name}{copy_number}"
+                copy_number += 1
+
+            # New frames receive empty cues; clones receive independent copies
+            entries = deepcopy(dplc_entries) if dplc_entries is not None else []
+            self.dplc_frames.append(entries)
+            self.dplc_frame_labels.append(dplc_name)
+
+            self.dplc_vram_cache.clear()
+            self.art_preview_revision += 1
 
         # Update the range and selection together, then refresh
         was_blocked = self.frame_spinbox.blockSignals(True)
@@ -1983,6 +2010,7 @@ class SpriteEditor(QtW.QWidget):
 
         self.piece_controls_state = None
         self._on_sprite_frame_changed(refresh_thumbnails=True)
+        return True
 
     def sprite_add_frame(self):
         # Commit any pending name edit before changing frames
@@ -1997,7 +2025,7 @@ class SpriteEditor(QtW.QWidget):
             name = f"Frame_{name_number}"
 
         # Add brand new frame to sprite
-        self.sprite_new_frame(name, [])
+        return self.sprite_new_frame(name, [])
 
     def sprite_clone_frame_and_tiles(self):
         return self.sprite_clone_frame(clone_tiles=True)
@@ -2010,6 +2038,20 @@ class SpriteEditor(QtW.QWidget):
             and frame_index < len(self.frame_labels)
         ):
             return False
+
+        if not self.sprite_check_dplc_frames():
+            return False
+
+        if clone_tiles and self.dplc_buffer_path is not None:
+            QtW.QMessageBox.warning(self, "Clone Frame and Tiles",
+                "Cloning source art with loaded DPLCs is not supported yet.")
+            return False
+
+        dplc_entries = (
+            self.dplc_frames[frame_index]
+            if self.dplc_buffer_path is not None
+            else None
+        )
 
         # Commit any pending name edit before changing frames
         self._on_sprite_frame_label_changed()
@@ -2040,8 +2082,7 @@ class SpriteEditor(QtW.QWidget):
             self.art_refresh_vram(refresh=False)
             self.render_art_tiles()
 
-        self.sprite_new_frame(name, pieces)
-        return True
+        return self.sprite_new_frame(name, pieces, dplc_entries=dplc_entries)
 
     def sprite_remove_frame(self):
         frame_index = self.frame_spinbox.value()
@@ -2050,11 +2091,21 @@ class SpriteEditor(QtW.QWidget):
             0 <= frame_index < len(self.map_frames)
             and frame_index < len(self.frame_labels)
         ):
-            return
+            return False
+
+        if not self.sprite_check_dplc_frames():
+            return False
 
         # Keep frame data and names aligned
         del self.map_frames[frame_index]
         del self.frame_labels[frame_index]
+
+        if self.dplc_buffer_path is not None:
+            del self.dplc_frames[frame_index]
+            del self.dplc_frame_labels[frame_index]
+
+            self.dplc_vram_cache.clear()
+            self.art_preview_revision += 1
 
         last_index = max(0, len(self.map_frames) - 1)
         next_index = min(frame_index, last_index)
@@ -2068,6 +2119,7 @@ class SpriteEditor(QtW.QWidget):
 
         self.piece_controls_state = None
         self._on_sprite_frame_changed(refresh_thumbnails=True)
+        return True
 
     def sprite_move_frame(self, old_index, new_index):
         frame_count = len(self.map_frames)
@@ -2077,10 +2129,13 @@ class SpriteEditor(QtW.QWidget):
             and 0 <= old_index < frame_count
             and 0 <= new_index < frame_count
         ):
-            return
+            return False
 
         if old_index == new_index:
-            return
+            return False
+
+        if not self.sprite_check_dplc_frames():
+            return False
 
         # Commit a pending name edit before changing frame order
         self._on_sprite_frame_label_changed()
@@ -2090,6 +2145,16 @@ class SpriteEditor(QtW.QWidget):
 
         self.map_frames.insert(new_index, frame)
         self.frame_labels.insert(new_index, name)
+
+        if self.dplc_buffer_path is not None:
+            cues = self.dplc_frames.pop(old_index)
+            dplc_name = self.dplc_frame_labels.pop(old_index)
+
+            self.dplc_frames.insert(new_index, cues)
+            self.dplc_frame_labels.insert(new_index, dplc_name)
+
+            self.dplc_vram_cache.clear()
+            self.art_preview_revision += 1
 
         # Entries were associated with the old indices
         self.frame_thumbnail_keys = [None] * frame_count
@@ -2104,6 +2169,39 @@ class SpriteEditor(QtW.QWidget):
 
         self.piece_controls_state = None
         self._on_sprite_frame_changed(refresh_thumbnails=True)
+        return True
+
+    def sprite_refresh_frame_name(self):
+        frame_index = self.frame_spinbox.value()
+        has_frame = (0 <= frame_index < len(self.map_frames)
+            and frame_index < len(self.frame_labels))
+
+        # Change label text box to that of the new frame's label (or blank if there is no frame)
+        self.frame_name_input.setEnabled(has_frame)
+        self.frame_name_input.setText(self.frame_labels[frame_index] if has_frame else "")
+
+    def sprite_check_dplc_frames(self):
+        """
+        Check that loaded DPLCs can be edited alongside mappings.
+        """
+        if self.dplc_buffer_path is None:
+            if self.dplc_cb.isChecked():
+                QtW.QMessageBox.warning(self, "Frame Edit", "Load DPLCs before editing frames.")
+                return False
+
+            return True
+
+        frame_count = len(self.map_frames)
+
+        if (
+            len(self.dplc_frames) != frame_count
+            or len(self.dplc_frame_labels) != frame_count
+        ):
+            QtW.QMessageBox.warning(self, "Frame Edit",
+                "Mapping and DPLC frame counts must match before editing frames.")
+            return False
+
+        return True
 
     def _on_sprite_frame_changed(self, *, refresh_thumbnails=False):
         """
@@ -2146,15 +2244,6 @@ class SpriteEditor(QtW.QWidget):
 
         # Update only this frame's caption
         self.framelist_refresh(frame_index=frame_index)
-
-    def sprite_refresh_frame_name(self):
-        frame_index = self.frame_spinbox.value()
-        has_frame = (0 <= frame_index < len(self.map_frames)
-            and frame_index < len(self.frame_labels))
-
-        # Change label text box to that of the new frame's label (or blank if there is no frame)
-        self.frame_name_input.setEnabled(has_frame)
-        self.frame_name_input.setText(self.frame_labels[frame_index] if has_frame else "")
 
 
     # --------------------------------------------------
@@ -4188,7 +4277,7 @@ class SpriteEditor(QtW.QWidget):
                     status = (f"DPLC frame {frame_index} requests source tiles "
                               f"starting at tile offset ${cue['tile']:X}, "
                               f"which is AFTER the end of the source buffer. "
-                              "No DPLC tiles were loaded for this frame.")
+                              "DPLC loading stopped prematurely.")
                     break
 
                 # Load only the tiles available in the source and destination
