@@ -258,6 +258,10 @@ class SpriteEditor(QtW.QWidget):
         self.btn_entry_remove = create_pushbutton("Remove Entry", width=95,
             tooltip="Remove the selected entry from this frame's DPLC",
             on_clicked=self.dplc_remove_entry, enabled=False)
+        self.dplc_preview_label = create_label("", width=256, height=16,
+            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            tooltip="Source tiles for the selected DPLC entry")
+        self.dplc_scroll = create_scrollarea(self.dplc_preview_label)
 
         # ui_build_piece_controls()
         self.piece_x_spinbox = create_spinbox(minimum=-128, maximum=127, width=45, keyboard_tracking=False,
@@ -716,7 +720,6 @@ class SpriteEditor(QtW.QWidget):
 
         # Scrollable Canvas
         self.vram_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-
         art_viewer_layout.addWidget(self.vram_scroll)
         self.vram_scroll.setAlignment(Qt.AlignmentFlag.AlignRight)
 
@@ -936,8 +939,9 @@ class SpriteEditor(QtW.QWidget):
         tile_row.addWidget(self.dplc_count_spinbox)
         tile_row.addStretch()
 
-        # Stack the rows
+        # Stack elements
         entry_layout.addLayout(tile_row)
+        entry_layout.addWidget(self.dplc_preview_label)
 
         return entry_layout
 
@@ -2823,6 +2827,9 @@ class SpriteEditor(QtW.QWidget):
     def dplc_refresh_entry_controls(self):
         selected = self.dplc_get_selected_entry()
         has_selection = selected is not None
+
+        # Render the current DPLC entry preview
+        self.render_dplc_entry_tiles()
 
         # Disable property spinboxes when nothing is selected
         for spinbox in self.entry_spinboxes.values():
@@ -4999,10 +5006,50 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     # Rendering
     # --------------------------------------------------
+    def render_dplc_entry_tiles(self):
+        """
+        Preview the selected entry's source tiles.
+        Other render functions might be moved out. This one is editor-exclusive.
+        """
+        selected = self.dplc_get_selected_entry()
+        if selected is None or not self.art_rows:
+            self.dplc_preview_label.clear()
+            return
+
+        # Validation check (clear preview if invalid)
+        path_input, compression, _, _, source_tiles = self.art_rows[0]
+        if (not source_tiles or compression.currentText() != "Uncompressed"
+            or self.art_buffer_compressions.get(path_input) != "Uncompressed"):
+            self.dplc_preview_label.clear()
+            return
+
+        # Get this entry's tiles
+        _, entry = selected
+        start = entry['tile']
+        tile_count = entry['count']
+
+        # Rebase the source slice to zero; unavailable tiles remain blank
+        tiles = dict(enumerate(source_tiles[start:start + tile_count]))
+
+        # Render DPLC preview
+        image = render_tile_grid(tiles, self.palette_colors, tile_count=tile_count,
+            palette_line=self.viewer_line_combo.currentIndex())
+
+        # Scale up 2x
+        pixmap = QPixmap.fromImage(image)
+        scaled_pixmap = pixmap.scaled(image.width() * 2, image.height() * 2,
+            Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
+
+        self.dplc_preview_label.setPixmap(scaled_pixmap)
+
     def render_art_tiles(self):
         """
         Render compiled VRAM or the complete selected art-file buffer.
         """
+        # Call here, because art buffers and preview palette
+        # can change independently of cues
+        self.render_dplc_entry_tiles()
+
         option = self.viewer_art_combo.currentIndex()
         self.art_update_tile_controls()
 
