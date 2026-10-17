@@ -109,7 +109,7 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_canvas_height = 256
         self.sprite_zoom = 2
 
-        # Piece selection and dragging
+        # Mapping piece selection and dragging
         self.hovered_piece = None   # Hovered pieces will have transparency if not selected
         self.selected_pieces = set()
         self.piece_drag = None      # Remember where the mouse and piece were when dragging began
@@ -118,6 +118,13 @@ class SpriteEditor(QtW.QWidget):
         # State of mapping piece editor and list
         self.piece_controls_state = None
         self.piece_list_state = None
+
+        # DPLC entry selection (independent of mapping piece selection)
+        self.selected_entry = None
+
+        # State of DPLC entry editor and list
+        self.entry_controls_state = None
+        self.entry_list_state = None
 
         # "Dirty flag" - Cleared if current state matches last saved state
         self._unsaved_changes = False
@@ -224,16 +231,16 @@ class SpriteEditor(QtW.QWidget):
 
         # ui_build_map_editor()
         self.map_edit_box = QtW.QGroupBox()
+        self.map_editor_tabs = QtW.QTabWidget() # Mapping Pieces/DPLC Entries tabs
         self.frame_spinbox = create_spinbox(minimum=0, maximum=0, on_value_changed=self._on_sprite_frame_changed)
         self.frame_name_input = create_lineedit(tooltip="Name of the mapping frame (in ASM files)")
-        self.btn_frame_add = create_pushbutton("Add Frame",
-            tooltip="Add a frame", on_clicked=self.sprite_add_frame, enabled=True)
-        self.btn_frame_remove = create_pushbutton("Remove Frame", width=85,
-            tooltip="Remove the current frame", on_clicked=self.sprite_remove_frame, enabled=False)
-        self.btn_frame_copy = create_pushbutton("Copy Frame", width=85,
-            tooltip="Duplicate the current mapping frame", on_clicked=self.sprite_clone_frame, enabled=False)
-        self.btn_frame_clone = create_pushbutton("Clone Frame and Tiles", width=125,
-            tooltip="Clone the current frame, and its tiles",
+        self.btn_frame_add = create_pushbutton("Add", tooltip="Add a new frame",
+            on_clicked=self.sprite_add_frame, enabled=True)
+        self.btn_frame_remove = create_pushbutton("Remove", tooltip="Remove the current frame",
+            on_clicked=self.sprite_remove_frame, enabled=False)
+        self.btn_frame_copy = create_pushbutton("Copy", tooltip="Duplicate the current mapping frame",
+            on_clicked=self.sprite_clone_frame, enabled=False)
+        self.btn_frame_clone = create_pushbutton("Clone", tooltip="Clone the current frame, and its tiles",
             on_clicked=self.sprite_clone_frame_and_tiles, enabled=False)
         self.btn_piece_add = create_pushbutton("Add Piece", tooltip="Add a piece to the current frame",
             on_clicked=self.sprite_add_piece, enabled=False)
@@ -243,6 +250,14 @@ class SpriteEditor(QtW.QWidget):
 
         # ui_build_piece_list()
         self.piece_list_table = QtW.QTableWidget(0, 1)
+
+        # ui_build_dplc_editor()
+        self.entry_list_table = QtW.QTableWidget(0, 1)
+        self.btn_entry_add = create_pushbutton("Add Entry", width=75, tooltip="Add an entry to this frame's DPLC",
+            on_clicked=self.dplc_add_entry, enabled=False)
+        self.btn_entry_remove = create_pushbutton("Remove Entry", width=95,
+            tooltip="Remove the selected entry from this frame's DPLC",
+            on_clicked=self.dplc_remove_entry, enabled=False)
 
         # ui_build_piece_controls()
         self.piece_x_spinbox = create_spinbox(minimum=-128, maximum=127, width=45, keyboard_tracking=False,
@@ -260,6 +275,13 @@ class SpriteEditor(QtW.QWidget):
         self.piece_x_flip_checkbox = QtW.QCheckBox("X-Flip")
         self.piece_y_flip_checkbox = QtW.QCheckBox("Y-Flip")
         self.piece_priority_checkbox = QtW.QCheckBox("Priority")
+        self.dplc_tile_spinbox = create_spinbox(minimum=0, maximum=4095,
+            display_base=16, prefix="$", width=55, keyboard_tracking=False,
+            tooltip="Source tile index in the first art buffer", enabled=False)
+        self.dplc_count_spinbox = create_spinbox(minimum=1, maximum=16,
+            value=1, width=45, keyboard_tracking=False,
+            tooltip="Number of tiles to load for this entry", enabled=False)
+
         # Group widgets by type
         self.piece_spinboxes = {
             "x": self.piece_x_spinbox,
@@ -267,12 +289,16 @@ class SpriteEditor(QtW.QWidget):
             "tile": self.piece_tile_spinbox,
             "width": self.piece_width_spinbox,
             "height": self.piece_height_spinbox,
-            "palette": self.piece_palette_spinbox,
+            "palette": self.piece_palette_spinbox
         }
         self.piece_checkboxes = {
             "priority": self.piece_priority_checkbox,
             "x_flip": self.piece_x_flip_checkbox,
-            "y_flip": self.piece_y_flip_checkbox,
+            "y_flip": self.piece_y_flip_checkbox
+        }
+        self.entry_spinboxes = {
+            "tile": self.dplc_tile_spinbox,
+            "count": self.dplc_count_spinbox
         }
         for field, spinbox in self.piece_spinboxes.items():
             spinbox.valueChanged.connect(lambda value, field=field:
@@ -281,6 +307,10 @@ class SpriteEditor(QtW.QWidget):
         for field, checkbox in self.piece_checkboxes.items():
             checkbox.clicked.connect(lambda checked, field=field:
                 self.sprite_edit_piece_property(field, checked))
+
+        for field, spinbox in self.entry_spinboxes.items():
+            spinbox.valueChanged.connect(lambda value, field=field:
+                self.dplc_edit_entry_property(field, value))
 
         self.ui_init()
         self.sprite_refresh_editing_ui()
@@ -636,7 +666,7 @@ class SpriteEditor(QtW.QWidget):
         # Sprites: placeholder list for compiled sprite frames
         self.editing_tabs.addTab(self.ui_build_sprite_viewer(), "Sprites")
 
-        # Mappings: frame and piece control placeholders
+        # Mappings: shared frame controls and separate piece/DPLC editors
         self.editing_tabs.addTab(self.ui_build_map_editor(), "Mapping Data")
 
         editing_layout.addWidget(self.editing_tabs, stretch=2)
@@ -764,24 +794,24 @@ class SpriteEditor(QtW.QWidget):
 
         frame_buttons.addWidget(self.btn_frame_add)
         frame_buttons.addWidget(self.btn_frame_remove)
+        frame_buttons.addWidget(self.btn_frame_copy)
+        frame_buttons.addWidget(self.btn_frame_clone)
 
         frame_buttons.addStretch()
         map_editor.addLayout(frame_buttons)
 
-        frame_copy_buttons = QtW.QHBoxLayout()
-        frame_copy_buttons.setSpacing(4)
+        # Frame controls apply to both inner tabs.
+        self.map_editor_tabs.addTab(self.ui_build_piece_editor(), "Mapping Pieces")
+        self.map_editor_tabs.addTab(self.ui_build_dplc_editor(), "DPLC Entries")
+        map_editor.addWidget(self.map_editor_tabs, stretch=1)
 
-        frame_copy_buttons.addWidget(self.btn_frame_copy)
-        frame_copy_buttons.addWidget(self.btn_frame_clone)
+        return self.map_edit_box
 
-        frame_copy_buttons.addStretch()
-        map_editor.addLayout(frame_copy_buttons)
-
-        piece_list = QtW.QHBoxLayout()
-        piece_list.addWidget(self.ui_build_piece_list())
-        map_editor.addLayout(piece_list)
-
-        map_editor.addSpacing(8)
+    def ui_build_piece_editor(self):
+        tab = QtW.QWidget()
+        piece_editor = QtW.QVBoxLayout(tab)
+        piece_editor.addWidget(self.ui_build_entry_list(self.piece_list_table, "Piece List",
+            self.sprite_piece_list_selection_changed), stretch=1)
 
         piece_buttons = QtW.QHBoxLayout()
         piece_buttons.setSpacing(4)
@@ -790,23 +820,42 @@ class SpriteEditor(QtW.QWidget):
         piece_buttons.addWidget(self.btn_piece_remove)
 
         piece_buttons.addStretch()
-        map_editor.addLayout(piece_buttons)
+        piece_editor.addLayout(piece_buttons)
 
-        map_editor.addSpacing(8)
+        piece_editor.addSpacing(8)
 
         piece_controls = QtW.QVBoxLayout()
-        piece_controls.addWidget(self.index_label)
         piece_controls.addLayout(self.ui_build_piece_controls())
-        map_editor.addLayout(piece_controls)
+        piece_editor.addLayout(piece_controls)
 
-        map_editor.addStretch()
+        return tab
 
-        return self.map_edit_box
+    def ui_build_dplc_editor(self):
+        tab = QtW.QWidget()
+        dplc_editor = QtW.QVBoxLayout(tab)
+        dplc_editor.addWidget(self.ui_build_entry_list(self.entry_list_table, "Entry List",
+            self.dplc_entry_list_selection_changed), stretch=1)
+        self.entry_list_table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.SingleSelection)
 
-    def ui_build_piece_list(self):
-        table = self.piece_list_table
+        entry_buttons = QtW.QHBoxLayout()
+        entry_buttons.setSpacing(4)
 
-        table.setHorizontalHeaderLabels(["Piece List"])
+        entry_buttons.addWidget(self.btn_entry_add)
+        entry_buttons.addWidget(self.btn_entry_remove)
+
+        entry_buttons.addStretch()
+        dplc_editor.addLayout(entry_buttons)
+
+        dplc_editor.addSpacing(8)
+
+        entry_controls = QtW.QVBoxLayout()
+        entry_controls.addLayout(self.ui_build_entry_controls())
+        dplc_editor.addLayout(entry_controls)
+
+        return tab
+
+    def ui_build_entry_list(self, table, header, connect=None):
+        table.setHorizontalHeaderLabels([header])
 
         table.setSelectionBehavior(QtW.QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QtW.QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -819,16 +868,18 @@ class SpriteEditor(QtW.QWidget):
         table.verticalHeader().setSectionResizeMode(QtW.QHeaderView.ResizeMode.Fixed)
         table.verticalHeader().setDefaultSectionSize(26)
 
-        # Starting dimensions
+        # Minimum height; the inner tab supplies the remaining space.
         table.setMinimumHeight(100)
-        table.setMaximumHeight(100)
 
-        table.itemSelectionChanged.connect(self.sprite_piece_list_selection_changed)
+        if connect is not None:
+            table.itemSelectionChanged.connect(connect)
 
         return table
 
     def ui_build_piece_controls(self):
         piece_layout = QtW.QVBoxLayout()
+
+        piece_layout.addWidget(self.index_label)
 
         # Row 1: Position
         position_row = QtW.QHBoxLayout()
@@ -839,8 +890,11 @@ class SpriteEditor(QtW.QWidget):
         position_row.addWidget(self.piece_y_spinbox)
         position_row.addStretch()
 
-        # Row 2: Size dimensions
+        # Row 2: Art tile and size dimensions
         size_row = QtW.QHBoxLayout()
+        size_row.addWidget(QtW.QLabel("Tile:"))
+        size_row.addWidget(self.piece_tile_spinbox)
+        size_row.addStretch()
         size_row.addWidget(QtW.QLabel("Width:"))
         size_row.addWidget(self.piece_width_spinbox)
         size_row.addStretch()
@@ -848,17 +902,11 @@ class SpriteEditor(QtW.QWidget):
         size_row.addWidget(self.piece_height_spinbox)
         size_row.addStretch()
 
-        # Row 3: Art Tile
-        tile_row = QtW.QHBoxLayout()
-        tile_row.addWidget(QtW.QLabel("Tile:"))
-        tile_row.addWidget(self.piece_tile_spinbox)
-        tile_row.addStretch()
-        tile_row.addWidget(QtW.QLabel("Palette:"))
-        tile_row.addWidget(self.piece_palette_spinbox)
-        tile_row.addStretch()
-
-        # Row 4: Flags
+        # Row 3: Palette and flags
         flag_row = QtW.QHBoxLayout()
+        flag_row.addWidget(QtW.QLabel("Palette:"))
+        flag_row.addWidget(self.piece_palette_spinbox)
+        flag_row.addStretch()
         flag_row.addWidget(self.piece_x_flip_checkbox)
         flag_row.addStretch()
         flag_row.addWidget(self.piece_y_flip_checkbox)
@@ -869,10 +917,29 @@ class SpriteEditor(QtW.QWidget):
         # Stack the rows
         piece_layout.addLayout(position_row)
         piece_layout.addLayout(size_row)
-        piece_layout.addLayout(tile_row)
         piece_layout.addLayout(flag_row)
 
         return piece_layout
+
+    def ui_build_entry_controls(self):
+        entry_layout = QtW.QVBoxLayout()
+
+        self.entry_index_label = create_label("Entry Properties", object_name="infoLabel")
+        entry_layout.addWidget(self.entry_index_label)
+
+        # Row 1: Art tile location and count
+        tile_row = QtW.QHBoxLayout()
+        tile_row.addWidget(QtW.QLabel("Tile Loc:"))
+        tile_row.addWidget(self.dplc_tile_spinbox)
+        tile_row.addStretch()
+        tile_row.addWidget(QtW.QLabel("Tile Count:"))
+        tile_row.addWidget(self.dplc_count_spinbox)
+        tile_row.addStretch()
+
+        # Stack the rows
+        entry_layout.addLayout(tile_row)
+
+        return entry_layout
 
 
     # --------------------------------------------------
@@ -1610,8 +1677,11 @@ class SpriteEditor(QtW.QWidget):
         """
         Clear loaded assets and reset previews, optionally clearing file manager entries.
         """
-        # Clear sprite piece selection
+        # Clear sprite piece (and DPLC) selection
         self.sprite_clear_selection(refresh=False)
+        self.selected_entry = None
+        self.entry_controls_state = None
+        self.entry_list_state = None
 
         # Clear palette to black and invalidate file association
         self.palette_buffer_layout = None
@@ -2208,6 +2278,10 @@ class SpriteEditor(QtW.QWidget):
         Update frame controls and canvas.
         Also refresh thumbnails if needed.
         """
+        # Clear DPLC entry selection
+        self.selected_entry = None
+        self.entry_controls_state = None
+
         # Refresh art only if DPLCs are used
         if self.dplc_cb.isChecked():
             self.dplc_refresh_vram()
@@ -2414,6 +2488,116 @@ class SpriteEditor(QtW.QWidget):
 
 
     # --------------------------------------------------
+    # Sprite: DPLC Entry Functions
+    # --------------------------------------------------
+    def dplc_add_entry(self):
+        frame_index = self.frame_spinbox.value()
+
+        if self.dplc_buffer_path is None or not 0 <= frame_index < len(self.dplc_frames):
+            return
+
+        entries = self.dplc_frames[frame_index]
+
+        # For now, append a new single-tile entry at tile 0
+        entries.append({"tile": 0, "count": 1})
+
+        # Select the new piece in both the list and viewer
+        new_index = len(entries) - 1
+        self.selected_entry = new_index
+
+        # Create the table row before scrolling to it
+        self.dplc_refresh_after_edit()
+        self.entry_list_table.scrollToItem(self.entry_list_table.item(new_index, 0))
+
+    def dplc_remove_entry(self):
+        selected = self.dplc_get_selected_entry()
+
+        if selected is None:
+            return
+
+        index, _ = selected
+
+        del self.dplc_frames[self.frame_spinbox.value()][index]
+
+        self.selected_entry = None
+        self.dplc_refresh_after_edit()
+
+    def dplc_get_selected_entry(self):
+        frame_index = self.frame_spinbox.value()
+
+        if self.dplc_buffer_path is None or not 0 <= frame_index < len(self.dplc_frames):
+            return None
+
+        entries = self.dplc_frames[frame_index]
+        index = self.selected_entry
+
+        if index is None or not 0 <= index < len(entries):
+            return None
+
+        return index, entries[index]
+
+    def dplc_sync_entry_list_selection(self):
+        table = self.entry_list_table
+        rows = table.selectionModel().selectedRows()
+
+        table_selection = rows[0].row() if rows else None
+
+        if table_selection == self.selected_entry:
+            return
+
+        was_blocked = table.blockSignals(True)
+
+        try:
+            table.clearSelection()
+            if self.selected_entry is not None:
+                table.selectRow(self.selected_entry)
+
+        finally:
+            table.blockSignals(was_blocked)
+
+    def dplc_entry_list_selection_changed(self):
+        rows = self.entry_list_table.selectionModel().selectedRows()
+        self.selected_entry = rows[0].row() if rows else None
+        self.dplc_refresh_entry_controls()
+
+    def dplc_edit_entry_property(self, field, value):
+        if field not in self.entry_spinboxes:
+            return
+
+        selected = self.dplc_get_selected_entry()
+        if selected is None:
+            return
+
+        value = int(value)
+        spinbox = self.entry_spinboxes[field]
+        if not spinbox.minimum() <= value <= spinbox.maximum():
+            return
+
+        _, entry = selected
+        if entry[field] == value:
+            return
+
+        entry[field] = value
+        self.dplc_refresh_after_edit()
+
+    def dplc_refresh_after_edit(self):
+        frame_index = self.frame_spinbox.value()
+
+        # Entry order and count determine every following destination in VRAM.
+        self.dplc_vram_cache.pop(frame_index, None)
+        self.art_preview_revision += 1
+        self.entry_controls_state = None
+
+        self.dplc_refresh_entry_list()
+        self.dplc_sync_entry_list_selection()
+        self.dplc_refresh_entry_controls()
+
+        self.dplc_refresh_vram()
+        self.render_art_tiles()
+        self.sprite_refresh_previews(frame_index=frame_index)
+
+
+    # --------------------------------------------------
     # Sprite: Refreshing
     # --------------------------------------------------
     def sprite_refresh_previews(self, *, frame_index=None):
@@ -2437,6 +2621,11 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_refresh_piece_list()
         self.sprite_sync_piece_list_selection()
         self.sprite_refresh_piece_controls()
+
+        self.dplc_refresh_entry_list()
+        self.dplc_sync_entry_list_selection()
+        self.dplc_refresh_entry_controls()
+
         self.art_update_tile_controls()
 
     def sprite_refresh_piece_list(self):
@@ -2508,7 +2697,7 @@ class SpriteEditor(QtW.QWidget):
         frame_index = self.frame_spinbox.value()
 
         self.btn_piece_add.setEnabled(0 <= frame_index < len(self.map_frames))
-        self.btn_piece_remove.setEnabled(bool(selected))
+        self.btn_piece_remove.setEnabled(has_selection)
 
         has_frames = (
             0 <= frame_index < len(self.map_frames)
@@ -2519,8 +2708,7 @@ class SpriteEditor(QtW.QWidget):
         self.btn_frame_clone.setEnabled(has_frames)
 
         # Include selection identity and property values
-        state = (
-            self.frame_spinbox.value(),
+        state = (self.frame_spinbox.value(),
             tuple(
                 (index,
                     tuple(
@@ -2530,10 +2718,10 @@ class SpriteEditor(QtW.QWidget):
                     tuple(
                         bool(piece.get(field, False))
                         for field in self.piece_checkboxes
-                    ),
+                    )
                 )
                 for index, piece in selected
-            ),
+            )
         )
 
         if state == self.piece_controls_state:
@@ -2550,6 +2738,7 @@ class SpriteEditor(QtW.QWidget):
                 title += f" — {len(selected)} selected"
 
             self.index_label.setText(title)
+
         else:
             reference_piece = None
             self.index_label.setText("Piece Properties")
@@ -2587,6 +2776,96 @@ class SpriteEditor(QtW.QWidget):
                     checkbox.setChecked(True in values)
             finally:
                 checkbox.blockSignals(was_blocked)
+
+    def dplc_refresh_entry_list(self):
+        table = self.entry_list_table
+        frame_index = self.frame_spinbox.value()
+
+        if self.dplc_buffer_path is not None and 0 <= frame_index < len(self.dplc_frames):
+            entries = self.dplc_frames[frame_index]
+        else:
+            entries = []
+
+        if self.selected_entry is not None and not 0 <= self.selected_entry < len(entries):
+            self.selected_entry = None
+
+        # Position, appearance, and selection do not affect list contents
+        state = (frame_index, tuple((entry["tile"], entry["count"]) for entry in entries))
+        if state == self.entry_list_state:
+            return
+
+        was_blocked = table.blockSignals(True)
+
+        try:
+            table.setRowCount(len(entries))
+
+            for row, entry in enumerate(entries):
+                item = table.item(row, 0)
+
+                if item is None:
+                    item = QtW.QTableWidgetItem()
+                    item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                    table.setItem(row, 0, item)
+
+                item.setText(f"Entry {row}")
+
+                item.setToolTip(f"Source tile: ${entry['tile']:03X}; tile count: {entry['count']}")
+
+                # Match the zero-based indices used by the editor
+                if table.verticalHeaderItem(row) is None:
+                    table.setVerticalHeaderItem(row, QtW.QTableWidgetItem(str(row)))
+
+        finally:
+            table.blockSignals(was_blocked)
+
+        self.entry_list_state = state
+
+    def dplc_refresh_entry_controls(self):
+        selected = self.dplc_get_selected_entry()
+        has_selection = selected is not None
+
+        # Disable property spinboxes when nothing is selected
+        for spinbox in self.entry_spinboxes.values():
+            spinbox.setEnabled(has_selection)
+
+        # Update when buttons are enabled based on entry change
+        frame_index = self.frame_spinbox.value()
+
+        self.btn_entry_add.setEnabled(
+            self.dplc_buffer_path is not None and 0 <= frame_index < len(self.dplc_frames))
+        self.btn_entry_remove.setEnabled(has_selection)
+        self.entry_index_label.setEnabled(has_selection)
+
+        if selected is not None:
+            index, reference_entry = selected
+            state = (frame_index, index, reference_entry["tile"], reference_entry["count"])
+
+        else:
+            reference_entry = None
+            state = (frame_index, None)
+
+        if state == self.entry_controls_state:
+            return
+        self.entry_controls_state = state
+
+        if selected is not None:
+            self.entry_index_label.setText(f"Entry {index}")
+
+        else:
+            self.entry_index_label.setText("Entry Properties")
+
+        # Updating the UI must not write values back into the data
+        for field, spinbox in self.entry_spinboxes.items():
+            was_blocked = spinbox.blockSignals(True)
+
+            try:
+                if reference_entry is None:
+                    spinbox.setValue(spinbox.minimum())
+                    spinbox.clear()
+                else:
+                    spinbox.setValue(reference_entry[field])
+            finally:
+                spinbox.blockSignals(was_blocked)
 
 
     # --------------------------------------------------
@@ -4207,10 +4486,14 @@ class SpriteEditor(QtW.QWidget):
         Retain the loaded macro flag; the shared Save with Macros checkbox
         controls the output syntax when saving mappings and DPLCs.
         """
-        self.dplc_buffer_path = path
         self.dplc_frames = frames
         self.dplc_frame_labels = labels
         self.dplc_use_macros = bool(use_macros)
+        self.dplc_buffer_path = path
+
+        self.selected_entry = None
+        self.entry_list_state = None
+        self.entry_controls_state = None
 
         if path is not None:
             self.dplc_name_input.setText(table_label)
@@ -4220,6 +4503,10 @@ class SpriteEditor(QtW.QWidget):
 
         self.dplc_vram_cache.clear()
         self.art_preview_revision += 1
+
+        self.dplc_refresh_entry_list()
+        self.dplc_sync_entry_list_selection()
+        self.dplc_refresh_entry_controls()
 
     def dplc_get_frame_vram(self, frame_index):
         """
