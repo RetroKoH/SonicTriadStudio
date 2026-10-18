@@ -96,30 +96,30 @@
   ]
   "sprites": {
     "Sonic": {
-      "format": 2,
+      "format": 3,
       "vram_index": 0,
       "palette_line": 0,
      "palettes": [
         {
-          "path": "palette\\Sonic.bin",
+          "path": "General\\Sprites\\Sonic\\Palettes\\SonicAndTails.bin",
           "length": 1
         }
       ],
       "art": [
         {
-          "path": "artunc\\Sonic.unc",
+          "path": "General\\Sprites\\Sonic\\Art\\Sonic.unc",
           "compression": "Uncompressed",
           "offset": 0
         }
       ],
       "mappings": {
-        "path": "_maps\\Sonic.asm",
-        "label": "Map_Sonic"
+        "path": "General\\Sprites\\Sonic\\Map - Sonic.asm",
+        "label": "Map_Sonic_"
       },
       "dplcs": {
         "enabled": true,
-        "path": "_maps\\Sonic - DPLCs.asm",
-        "label": "SonicDynPLC"
+        "path": "General\\Sprites\\Sonic\\DPLC - Sonic.asm",
+        "label": "PLC_Sonic_"
       }
     }
   },
