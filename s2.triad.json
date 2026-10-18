@@ -142,6 +142,33 @@
         "path": "mappings\\spriteDPLC\\Sonic.asm",
         "label": ".offsets"
       }
+    },
+	"Tails": {
+      "format": 2,
+      "vram_index": 0,
+      "palette_line": 0,
+      "palettes": [
+        {
+          "path": "art\\palettes\\SonicAndTails.bin",
+          "length": 1
+        }
+      ],
+      "art": [
+        {
+          "path": "art\\uncompressed\\Tails's art.bin",
+          "compression": "Uncompressed",
+          "offset": 0
+        }
+      ],
+      "mappings": {
+        "path": "mappings\\sprite\\Tails.asm",
+        "label": "Map_Tails"
+      },
+      "dplcs": {
+        "enabled": true,
+        "path": "mappings\\spriteDPLC\\Tails.asm",
+        "label": "DPLC_Tails"
+      }
     }
   },
   "settings": {
