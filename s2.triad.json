@@ -2,7 +2,27 @@
   "project_name": "Sonic 2",
   "rom_path": "s2.bin",
   "palettes": [
-	"palette\\Sonic.bin"
+    "art\\palettes\\SonicAndTails.bin",
+    "art\\palettes\\SonicAndTails2.bin",
+    "art\\palettes\\EHZ.bin",
+    "art\\palettes\\CPZ.bin",
+	"art\\palettes\\CPZ underwater.bin",
+    "art\\palettes\\ARZ.bin",
+	"art\\palettes\\ARZ underwater.bin",
+    "art\\palettes\\CNZ.bin",
+    "art\\palettes\\HTZ.bin",
+    "art\\palettes\\MCZ.bin",
+    "art\\palettes\\OOZ.bin",
+    "art\\palettes\\MTZ.bin",
+    "art\\palettes\\SCZ.bin",
+    "art\\palettes\\WFZ.bin",
+    "art\\palettes\\DEZ.bin",
+    "art\\palettes\\HPZ.bin",
+    "art\\palettes\\HPZ underwater.bin",
+    "art\\palettes\\Wood Zone.bin",
+    "art\\palettes\\CNZ Boss.bin",
+    "art\\palettes\\MCZ Boss.bin",
+    "art\\palettes\\OOZ Boss.bin"
   ],
   "sprites": {
     "Badnik - Moto Bug": {
