@@ -120,27 +120,27 @@
       "format": 2,
       "vram_index": 0,
       "palette_line": 0,
-     "palettes": [
+      "palettes": [
         {
-          "path": "palette\\Sonic.bin",
+          "path": "art\\palettes\\SonicAndTails.bin",
           "length": 1
         }
       ],
       "art": [
         {
-          "path": "artunc\\Sonic.unc",
+          "path": "art\\uncompressed\\Sonic's art.bin",
           "compression": "Uncompressed",
           "offset": 0
         }
       ],
       "mappings": {
-        "path": "_maps\\Sonic.asm",
+        "path": "mappings\\sprite\\Sonic.asm",
         "label": "Map_Sonic"
       },
       "dplcs": {
         "enabled": true,
-        "path": "_maps\\Sonic - DPLCs.asm",
-        "label": "SonicDynPLC"
+        "path": "mappings\\spriteDPLC\\Sonic.asm",
+        "label": ".offsets"
       }
     }
   },
