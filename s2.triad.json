@@ -84,31 +84,31 @@
     "art\\palettes\\ARZWater SS transformation.bin"
   ],
   "sprites": {
-    "Badnik - Moto Bug": {
+    "Badnik (EHZ) - Masher": {
       "format": 2,
       "vram_index": 0,
       "palette_line": 0,
       "palettes": [
         {
-          "path": "palette\\Sonic.bin",
+          "path": "art\\palettes\\SonicAndTails.bin",
           "length": 1
         },
         {
-          "path": "palette\\Green Hill Zone - Forever.bin",
+          "path": "art\\palettes\\EHZ.bin",
           "length": 3
         }
       ],
       "art": [
         {
-          "path": "artnem\\Enemy Motobug.nem",
+          "path": "art\\nemesis\\EHZ Pirahna badnik.nem",
           "compression": "Nemesis",
           "offset": 0,
           "count": 0
         }
       ],
       "mappings": {
-        "path": "_maps\\Moto Bug.asm",
-        "label": "Map_Moto"
+        "path": "mappings\\sprite\\obj5C.asm",
+        "label": "Map_obj5C"
       },
       "dplcs": {
         "enabled": false,
