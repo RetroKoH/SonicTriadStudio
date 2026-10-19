@@ -36,26 +36,39 @@ class Project(QObject):
             raise ValueError("Project JSON must contain a dictionary.")
 
         # Get subsections of data
-        palettes = loaded_data.get("palettes", [])
+        palettes = loaded_data.get("palettes", {})
         sprites = loaded_data.get("sprites", {})
         settings = loaded_data.get("settings", {})
         rom_path = loaded_data.get("rom_path", "")
 
-        if not isinstance(palettes, list) or any(
-                not isinstance(path, str)
-                or not path for path in palettes
-        ):
-            raise ValueError("Project palettes must be a list of nonblank path strings.")
+        # Validate project palettes
+        if not isinstance(palettes, dict):
+            raise ValueError("Project palettes must be a dictionary.")
 
+        for name, config in palettes.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Palette names must be nonblank strings.")
+
+            if not isinstance(config, dict):
+                raise ValueError(f"Palette '{name}' must contain a dictionary.")
+
+            palette_path = config.get("path")
+
+            if not isinstance(palette_path, str) or not palette_path.strip():
+                raise ValueError(f"Palette '{name}' must have a nonblank path.")
+
+        # Validate project sprites
         if not isinstance(sprites, dict) or any(
             not isinstance(build, dict)
             for build in sprites.values()
         ):
             raise ValueError("Project sprites must contain build dictionaries.")
 
+        # Validate project settings
         if not isinstance(settings, dict):
             raise ValueError("Project settings must be a dictionary.")
 
+        # Validate ROM path (Maybe move this to settings dictionary)
         if rom_path is not None and not isinstance(rom_path, str):
             raise ValueError("Project ROM path must be a path string.")
 

@@ -1508,6 +1508,9 @@ class SpriteEditor(QtW.QWidget):
     # Project File Selection
     # --------------------------------------------------
     def proj_populate_sprite_list(self, sprite_builds):
+        """
+        Populate the dropdown with stored sprite builds.
+        """
         self.project_sprite_builds = sprite_builds
 
         # Previous indices no longer refer to the rebuilt list

@@ -51,8 +51,9 @@ class PaletteEditor(QtW.QWidget):
         self.project = project
 
         # File and Project paths
+        self.active_palette_name = None
         self.active_palette_path = None
-        self.project_palette_paths = []
+        self.project_palettes = {}
 
         # Palette Storage (1 to 256 colors)
         self.colors = [QCOL_BLACK for _i in range(64)]  # Default 64 colors
@@ -504,7 +505,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Project exclusive block
         try:
-            self.proj_add_palette(path)
+            name = self.proj_add_palette(path)
 
         except (OSError, TypeError, ValueError) as e:
             QtW.QMessageBox.warning(self, "Project Update Error",
@@ -515,7 +516,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Activate the created palette
         self.palette_set_colors(new_pal)
-        self.proj_register_palette(path)
+        self.proj_register_palette(name, path)
         self.record_clean_palette()
 
         # Successful creation
@@ -552,7 +553,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Project exclusive block
         try:
-            self.proj_add_palette(path)
+            name = self.proj_add_palette(path)
 
         except (OSError, TypeError, ValueError) as e:
             QtW.QMessageBox.warning(self, "Project Update Error",
@@ -562,7 +563,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Activate the loaded palette
         self.palette_set_colors(loaded_colors)
-        self.proj_register_palette(path)
+        self.proj_register_palette(name, path)
         self.record_clean_palette()
 
         # Successful load
@@ -614,7 +615,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Project exclusive block
         try:
-            self.proj_add_palette(path)
+            name = self.proj_add_palette(path)
 
         except (OSError, TypeError, ValueError) as e:
             QtW.QMessageBox.warning(self, "Project Update Error",
@@ -624,7 +625,7 @@ class PaletteEditor(QtW.QWidget):
             return False
 
         # Activate the newly saved palette
-        self.proj_register_palette(path)
+        self.proj_register_palette(name, path)
         self.record_clean_palette()
 
         # Successful save
@@ -639,12 +640,13 @@ class PaletteEditor(QtW.QWidget):
             True if removal was successful, False otherwise.
         """
         path = self.active_palette_path
+        name = self.active_palette_name
 
         # If no filepath, stop here
         if path is None:
             return False
 
-        message = f"Are you sure you want to remove '{path.name}' from the project?"
+        message = f"Are you sure you want to remove '{name}' from the project?"
 
         if self.unsaved_changes:
             message += "\n\nUnsaved changes will be discarded."
@@ -661,20 +663,22 @@ class PaletteEditor(QtW.QWidget):
             return False
 
         try:
-            self.proj_remove_palette(path)
+            self.proj_remove_palette(name)
 
         except (OSError, TypeError, ValueError) as e:
-            QtW.QMessageBox.warning(
-                self,
-                "Project Update Error",
-                f"Could not remove the palette from the project:\n{e}",
-            )
+            QtW.QMessageBox.warning(self, "Project Update Error",
+                f"Could not remove the palette from the project:\n{e}")
             return False
 
         # Remove path from the list of palettes
-        remaining_paths = [p for p in self.project_palette_paths if p != path]
+        remaining_palettes = {
+            name: config
+            for name, config in self.project_palettes.items()
+            if name != self.active_palette_name
+        }
 
         # Discard the removed palette
+        self.active_palette_name = None
         self.active_palette_path = None
         self.current_dropdown_index = -1
         self.palette_set_colors([QCOL_BLACK for _ in range(64)])
@@ -682,7 +686,7 @@ class PaletteEditor(QtW.QWidget):
         self.palette_refresh_highlighting()
 
         # Refresh the dropdown and load the first remaining palette, if any
-        self.proj_populate_pal_list(remaining_paths)
+        self.proj_populate_pal_list(remaining_palettes)
 
         return True
 
@@ -739,97 +743,107 @@ class PaletteEditor(QtW.QWidget):
     # --------------------------------------------------
     # Project File Selection
     # --------------------------------------------------
-    def proj_register_palette(self, path):
+    def proj_register_palette(self, name, path):
         """
-        Activate a palette path and register it in the editor's dropdown.
+        Activate a palette and register it in the editor's dropdown.
         """
         # Update the current palette file reference
+        self.active_palette_name = name
         self.active_palette_path = path
 
-        # Add it to the project if needed
-        if path not in self.project_palette_paths:
-            self.project_palette_paths.append(path)
+        if self.project.is_loaded:
+            palettes = self.project.data.get("palettes", {})
+        else:
+            palettes = dict(self.project_palettes)
+            palettes[name] = {"path": str(path)}
 
         # Repopulate the dropdown list
-        self.proj_populate_pal_list(self.project_palette_paths)
-
-        # Set dropdown selection to newly added palette
-        target_index = -1
-        for i in range(self.pal_dropdown.count()):
-            item_data = self.pal_dropdown.itemData(i)
-            if item_data and Path(item_data) == path:
-                target_index = i
-                break
+        self.proj_populate_pal_list(palettes)
+        was_blocked = self.pal_dropdown.blockSignals(True)
 
         # Set selection to the new palette
-        if target_index >= 0:
-            was_blocked = self.pal_dropdown.blockSignals(True)
+        try:
+            index = self.pal_dropdown.findText(name)
+            self.pal_dropdown.setCurrentIndex(index)
+            self.current_dropdown_index = index
 
-            try:
-                self.pal_dropdown.setCurrentIndex(target_index)
-                self.current_dropdown_index = target_index
-            finally:
-                self.pal_dropdown.blockSignals(was_blocked)
+        finally:
+            self.pal_dropdown.blockSignals(was_blocked)
 
-    def proj_populate_pal_list(self, palette_paths):
-        self.project_palette_paths = list(palette_paths)
+    def proj_populate_pal_list(self, palettes):
+        """
+        Populate the dropdown with stored palette assets.
+        """
+        self.project_palettes = palettes
 
-        self.pal_dropdown.blockSignals(True)
-        self.pal_dropdown.clear()
+        # Previous indices no longer refer to the rebuilt list
+        self.current_dropdown_index = -1
 
-        if not palette_paths:
-            self.pal_dropdown.addItem("No Palettes Found", userData=None)
-            self.pal_dropdown.setEnabled(False)
-            self.pal_dropdown.blockSignals(False)
-            return
+        was_blocked = self.pal_dropdown.blockSignals(True)
 
-        self.pal_dropdown.setEnabled(True)
-        for path in self.project_palette_paths:
-            # Display relative filename to user, store full Path object in itemData
-            self.pal_dropdown.addItem(path.name, userData=path)
+        try:
+            self.pal_dropdown.clear()
 
-        # Silently reset the selection
-        self.pal_dropdown.setCurrentIndex(-1)
-        self.pal_dropdown.blockSignals(False)
+            if not palettes:
+                self.pal_dropdown.addItem("No Palettes Found", userData=None)
+                self.pal_dropdown.setEnabled(False)
+            else:
+                self.pal_dropdown.setEnabled(True)
+
+                for palette_name, config in palettes.items():
+                    # Display key name in dropdown
+                    self.pal_dropdown.addItem(palette_name, userData=config)
+
+            # Silently reset the selection
+            self.pal_dropdown.setCurrentIndex(-1)
+
+        finally:
+            self.pal_dropdown.blockSignals(was_blocked)
 
         # Only auto-load index 0 if we aren't currently targeting a specific file
-        if not self.active_palette_path and self.pal_dropdown.count() > 0:
+        if not was_blocked and not self.active_palette_name and palettes:
             self.pal_dropdown.setCurrentIndex(0)
 
-    def proj_add_palette(self, path):
+    def proj_add_palette(self, path, name=None):
         """
-        Add a palette to the active project and save the project.
+        Register a palette to the project and return its name.
 
         Does nothing when no project is loaded or the palette is
         already registered. Raises an exception if saving fails.
         """
         project = self.project
+        path = project.resolve_asset_path(path)
 
         if not project.is_loaded:
-            return
+            return name if name is not None else path.stem
 
-        path = project.resolve_asset_path(path)
+        palettes = project.data.get("palettes", {})
+
+        # Loading an existing file preserves its registered name
+        for existing_name, config in palettes.items():
+            if project.resolve_asset_path(config["path"]) == path:
+                return existing_name
+
+        name = (name if name is not None else path.stem).strip()
+
+        if not name:
+            raise ValueError("The palette name cannot be blank.")
+
+        if name in palettes:
+            raise ValueError(f"A palette named '{name}' already exists.")
+
         proposed = project.snapshot()
-        palette_paths = proposed.get("palettes", [])
 
-        # Compare resolved paths so different spellings of the same
-        # path do not create duplicate entries.
-        already_registered = any(project.resolve_asset_path(existing)
-            == path for existing in palette_paths)
-
-        if already_registered:
-            return
-
-        proposed["palettes"] = [
-            *palette_paths,
-            project.store_asset_path(path),
-        ]
-
+        proposed.setdefault("palettes", {})[name] = {
+            "path": project.store_asset_path(path)
+        }
         project.save(proposed)
 
-    def proj_remove_palette(self, path):
+        return name
+
+    def proj_remove_palette(self, name):
         """
-        Remove a palette from the active project and save the project.
+        Remove a palette from the active project.
 
         Does nothing when no project is loaded or the palette is
         not registered. Raises an exception if saving fails.
@@ -839,20 +853,13 @@ class PaletteEditor(QtW.QWidget):
         if not project.is_loaded:
             return
 
-        path = project.resolve_asset_path(path)
-        proposed = project.snapshot()
-        palette_paths = proposed.get("palettes", [])
-
-        remaining_paths = [
-            existing
-            for existing in palette_paths
-            if project.resolve_asset_path(existing) != path
-        ]
-
-        if len(remaining_paths) == len(palette_paths):
+        # If no palette by that name exists, stop here
+        if name not in project.data.get("palettes", {}):
             return
 
-        proposed["palettes"] = remaining_paths
+        # Find palette by name and remove it
+        proposed = project.snapshot()
+        del proposed["palettes"][name]
         project.save(proposed)
 
     # File Toolbar Dropdown function
@@ -861,33 +868,36 @@ class PaletteEditor(QtW.QWidget):
         if index < 0:
             return
 
-        # Capture the requested palette before any save prompt
-        path = self.pal_dropdown.itemData(index)
+        name = self.pal_dropdown.itemText(index)
+        config = self.pal_dropdown.itemData(index)
 
-        if not isinstance(path, Path):
+        if not isinstance(config, dict):
             return
+
+        # Capture the requested palette before any save prompt
+        path = self.project.resolve_asset_path(config["path"])
 
         # No switch is needed if this palette is already active
         if path == self.active_palette_path:
+            self.active_palette_name = name
             self.current_dropdown_index = index
             return
 
         def revert_selection():
             # Find the currently active palette. Save As may have
             # changed its path and dropdown position during the prompt.
-            restore_index = -1
-
-            for i in range(self.pal_dropdown.count()):
-                if self.pal_dropdown.itemData(i) == self.active_palette_path:
-                    restore_index = i
-                    break
 
             # Silently revert dropdown, don't replace palette
             was_blocked = self.pal_dropdown.blockSignals(True)
 
             try:
-                self.pal_dropdown.setCurrentIndex(restore_index)
-                self.current_dropdown_index = restore_index
+                index = (
+                    self.pal_dropdown.findText(self.active_palette_name)
+                    if self.active_palette_name is not None else -1
+                )
+                self.pal_dropdown.setCurrentIndex(index)
+                self.current_dropdown_index = index
+
             finally:
                 self.pal_dropdown.blockSignals(was_blocked)
 
@@ -901,32 +911,26 @@ class PaletteEditor(QtW.QWidget):
 
             # Activate only after reading succeeds
             self.palette_set_colors(loaded_colors)
-            self.proj_register_palette(path)
+            self.proj_register_palette(name, path)
             self.record_clean_palette()
 
         self.check_unsaved_changes(load_new_selection, revert_selection)
 
     def _on_project_loaded(self):
-        """Reset the palette document and read the active project's list."""
-        project = self.project
-
-        palette_paths = [
-            project.resolve_asset_path(path)
-            for path in project.data.get("palettes", [])
-        ]
-
+        """
+        Reset the palette document and read the active project's list.
+        """
         # Discard the previous project's document association
+        self.active_palette_name = None
         self.active_palette_path = None
         self.current_dropdown_index = -1
 
         # Establish a blank document before selecting a new palette
-        self.palette_set_colors([
-            QColor(0, 0, 0) for _ in range(64)
-        ])
+        self.palette_set_colors([QCOL_BLACK for _ in range(64)])
         self.record_clean_palette()
 
         # The existing population method selects the first palette, if any
-        self.proj_populate_pal_list(palette_paths)
+        self.proj_populate_pal_list(self.project.data.get("palettes", {}))
 
 
     # --------------------------------------------------

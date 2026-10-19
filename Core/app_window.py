@@ -179,24 +179,13 @@ class TriadApp(QtW.QMainWindow):
             item.setIcon(0, folder_icon)
             return item
 
-        def add_asset(parent, asset_path):
-            if not asset_path:
-                return None
-
-            asset_path = str(asset_path)
-            item = QtW.QTreeWidgetItem(parent, [Path(asset_path).name])
-            item.setIcon(0, file_icon)
-            item.setToolTip(0, asset_path)
-
-            # Keep JSON path available for future open/context menu actions
-            item.setData(0, Qt.ItemDataRole.UserRole, {"type": "palette", "id": path})
-            return item
-
         # Standalone palette resources
         palettes_item = add_folder(self.asset_tree, "Palettes")
 
-        for path in data.get("palettes", []):
-            add_asset(palettes_item, path)
+        for name in data.get("palettes", {}):
+            build_item = QtW.QTreeWidgetItem(palettes_item, [name])
+            build_item.setIcon(0, file_icon)
+            build_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "palette", "id": name})
 
         # Sprite builds and their associated resources
         sprites_item = add_folder(self.asset_tree, "Sprites")
@@ -232,15 +221,17 @@ class TriadApp(QtW.QMainWindow):
 
         # Palettes (Palette Editor)
         if asset_type == "palette":
-            path = self.project.resolve_asset_path(asset_id)
+            palette = self.project.data.get("palettes", {}).get(asset_id)
 
-            if path is None:
+            if not isinstance(palette, dict):
                 return
+
+            path = self.project.resolve_asset_path(palette["path"])
 
             name = path.name
             type_label = "Palette"
             details = [
-                ("Project path", asset_id),
+                ("Project path", palette["path"]),
                 ("Full path", str(path)),
                 ("File exists", "Yes" if path.is_file() else "No"),
             ]
