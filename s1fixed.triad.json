@@ -1,75 +1,273 @@
 {
   "project_name": "S1 Fixed",
-  "rom_path": "s1Fixed.bin",
+  "rom_path": "S1Fixed.bin",
+
   "palettes": {
-    "Sonic": {"path": "palette\\Sonic.bin"},
-    "Sonic (Proto)": {"path": "palette\\Sonic - Proto.bin"},
-    "Sonic (LZ Water)": {"path": "palette\\Sonic - LZ Underwater.bin"},
-    "Sonic (SBZ3 Water)": {"path": "palette\\Sonic - SBZ3 Underwater.bin"},
-    "Green Hill Zone": {"path": "palette\\Green Hill Zone - Original.bin"},
-    "Green Hill Zone (Forever)": {"path": "palette\\Green Hill Zone - Forever.bin"},
-    "Marble Zone": {"path": "palette\\Marble Zone.bin"},
-    "Spring Yard Zone": {"path": "palette\\Spring Yard Zone.bin"},
-    "Labyrinth Zone": {"path": "palette\\Labyrinth Zone.bin"},
-    "Star Light Zone": {"path": "palette\\Star Light Zone.bin"},
-    "SBZ Act 1": {"path": "palette\\SBZ Act 1.bin"},
-    "SBZ Act 2": {"path": "palette\\SBZ Act 2.bin"},
-    "SBZ Act 3": {"path": "palette\\SBZ Act 3.bin"},
-    "SBZ Act 3 (New)": {"path": "palette\\SBZ Act 3 - New.bin"},
-    "SBZ Act 3 Underwater": {"path": "palette\\SBZ Act 3 Underwater.bin"},
-    "SBZ Act 3 Underwater (New)": {"path": "palette\\SBZ Act 3 Underwater - New.bin"},
-    "Sega BG": {"path": "palette\\Sega Background.bin"},
-    "Sega 1": {"path": "palette\\Sega1.bin"},
-    "Sega 2": {"path": "palette\\Sega2.bin"},
-    "Title Screen": {"path": "palette\\Title Screen.bin"},
-    "Level Select": {"path": "palette\\Level Select.bin"},
-    "Level Select (S2)": {"path": "palette\\Level Select (S2).bin"},
-    "Special Stage": {"path": "palette\\Special Stage.bin"},
-    "Special Stage Results": {"path": "palette\\Special Stage Results.bin"},
-    "Special Stage Continue Bonus": {"path": "palette\\Special Stage Continue Bonus.bin"},
-    "Ending": {"path": "palette\\Ending - Original.bin"},
-    "Ending (Forever)": {"path": "palette\\Ending - Forever.bin"},
-    "Super Ending": {"path": "palette\\Ending - SuperMod - Original.bin"},
-    "Super Ending (Forever)": {"path": "palette\\Ending - SuperMod - Forever.bin"},
-    "Super Ending (Flowers)": {"path": "palette\\Ending - SuperMod - Flowers.bin"},
-    "Cycle: GHZ": {"path": "palette\\Cycle - GHZ.bin"},
-    "Cycle: MZ (Unused)": {"path": "palette\\Cycle - MZ (Unused).bin"},
-    "Cycle: SYZ 1": {"path": "palette\\Cycle - SYZ1.bin"},
-    "Cycle: SYZ 2": {"path": "palette\\Cycle - SYZ2.bin"},
-    "Cycle: LZ Conveyors": {"path": "palette\\Cycle - LZ Conveyor Belt.bin"},
-    "Cycle: LZ Conveyors (Water)": {"path": "palette\\Cycle - LZ Conveyor Belt Underwater.bin"},
-    "Cycle: LZ Waterfall": {"path": "palette\\Cycle - LZ Waterfall.bin"},
-    "Cycle: SLZ": {"path": "palette\\Cycle - SLZ.bin"},
-    "Cycle: SBZ 1": {"path": "palette\\Cycle - SBZ 1.bin"},
-    "Cycle: SBZ 2": {"path": "palette\\Cycle - SBZ 2.bin"},
-    "Cycle: SBZ 3": {"path": "palette\\Cycle - SBZ 3.bin"},
-    "Cycle: SBZ 4": {"path": "palette\\Cycle - SBZ 4.bin"},
-    "Cycle: SBZ 5": {"path": "palette\\Cycle - SBZ 5.bin"},
-    "Cycle: SBZ 6": {"path": "palette\\Cycle - SBZ 6.bin"},
-    "Cycle: SBZ 7": {"path": "palette\\Cycle - SBZ 7.bin"},
-    "Cycle: SBZ 8": {"path": "palette\\Cycle - SBZ 8.bin"},
-    "Cycle: SBZ 9": {"path": "palette\\Cycle - SBZ 9.bin"},
-    "Cycle: SBZ 10": {"path": "palette\\Cycle - SBZ 10.bin"},
-    "Cycle: SBZ3 Waterfall": {"path": "palette\\Cycle - SBZ3 Waterfall.bin"},
-    "Cycle: Special Stage 1": {"path": "palette\\Cycle - Special Stage 1.bin"},
-    "Cycle: Special Stage 2": {"path": "palette\\Cycle - Special Stage 2.bin"},
-    "Cycle: Super Sonic": {"path": "palette\\Cycle - Super Sonic.bin"},
-    "Cycle: Super Sonic (Proto)": {"path": "palette\\Cycle - Super Sonic - Proto.bin"},
-    "Cycle: Super Sonic (LZ Water)": {"path": "palette\\Cycle - LZ UW Super Sonic.bin"},
-    "Cycle: Super Sonic (SBZ3 Water)": {"path": "palette\\Cycle - SBZ3 UW Super Sonic.bin"},
-    "Icon: GHZ": {"path": "palette\\S2 Level Select\\GHZ.bin"},
-    "Icon: MZ": {"path": "palette\\S2 Level Select\\MZ.bin"},
-    "Icon: SYZ": {"path": "palette\\S2 Level Select\\SYZ.bin"},
-    "Icon: LZ": {"path": "palette\\S2 Level Select\\LZ.bin"},
-    "Icon: SLZ": {"path": "palette\\S2 Level Select\\SLZ.bin"},
-    "Icon: SBZ 1": {"path": "palette\\S2 Level Select\\SBZ1.bin"},
-    "Icon: SBZ 2": {"path": "palette\\S2 Level Select\\SBZ2.bin"},
-    "Icon: SBZ 3": {"path": "palette\\S2 Level Select\\SBZ3.bin"},
-    "Icon: Special": {"path": "palette\\S2 Level Select\\Special.bin"},
-    "Icon: Sound": {"path": "palette\\S2 Level Select\\Sound Sonic.bin"}
+    "e3e07f6a-209f-45e0-8610-da02557b1693": {
+      "name": "Sonic",
+      "path": "palette\\Sonic.bin"
+    },
+    "a79de787-140c-4074-94fc-e876baaabd0e": {
+      "name": "Sonic (Proto)",
+      "path": "palette\\Sonic - Proto.bin"
+    },
+    "8cd65900-a529-430c-9d7b-5f57004abce8": {
+      "name": "Sonic (LZ Water)",
+      "path": "palette\\Sonic - LZ Underwater.bin"
+    },
+    "865f62f8-24d1-4933-8609-8232d7557c8b": {
+      "name": "Sonic (SBZ3 Water)",
+      "path": "palette\\Sonic - SBZ3 Underwater.bin"
+    },
+    "5a2e48b8-ece1-4630-8c5f-0152fdf6cb1b": {
+      "name": "Green Hill Zone",
+      "path": "palette\\Green Hill Zone - Original.bin"
+    },
+    "25876857-6def-44fa-a542-5cc258c37c95": {
+      "name": "Green Hill Zone (Forever)",
+      "path": "palette\\Green Hill Zone - Forever.bin"
+    },
+    "6be85d06-4b01-4282-b200-3f64bfadd04e": {
+      "name": "Marble Zone",
+      "path": "palette\\Marble Zone.bin"
+    },
+    "a082c85f-00c3-44af-8ec4-a22f3741012d": {
+      "name": "Spring Yard Zone",
+      "path": "palette\\Spring Yard Zone.bin"
+    },
+    "0db83ed5-60f5-4620-8392-82c7471ea54c": {
+      "name": "Labyrinth Zone",
+      "path": "palette\\Labyrinth Zone.bin"
+    },
+    "7edd97e7-cbb8-4362-af20-a8698f18cd7b": {
+      "name": "Star Light Zone",
+      "path": "palette\\Star Light Zone.bin"
+    },
+    "a42274a5-0a33-4b22-ad6f-454dde788035": {
+      "name": "SBZ Act 1",
+      "path": "palette\\SBZ Act 1.bin"
+    },
+    "518cd7e4-8979-459a-adf2-73b314dc66d8": {
+      "name": "SBZ Act 2",
+      "path": "palette\\SBZ Act 2.bin"
+    },
+    "0496fe68-a2f3-409e-b87a-8fe6dbf6b63d": {
+      "name": "SBZ Act 3",
+      "path": "palette\\SBZ Act 3.bin"
+    },
+    "adab3696-4409-4404-9811-c7b967cb48aa": {
+      "name": "SBZ Act 3 (New)",
+      "path": "palette\\SBZ Act 3 - New.bin"
+    },
+    "dc91d2a4-d617-48ab-b93c-9ee01751fe6d": {
+      "name": "SBZ Act 3 Underwater",
+      "path": "palette\\SBZ Act 3 Underwater.bin"
+    },
+    "c55603b0-d4af-44fe-a1b8-71fc25a37a3d": {
+      "name": "SBZ Act 3 Underwater (New)",
+      "path": "palette\\SBZ Act 3 Underwater - New.bin"
+    },
+    "2055307f-8fab-4fe2-b228-6463561698c1": {
+      "name": "Sega BG",
+      "path": "palette\\Sega Background.bin"
+    },
+    "9449bd5d-faa5-42d1-b8da-627dc77b2370": {
+      "name": "Sega 1",
+      "path": "palette\\Sega1.bin"
+    },
+    "7732f676-4a3b-4c09-bcc2-fbbc4a372952": {
+      "name": "Sega 2",
+      "path": "palette\\Sega2.bin"
+    },
+    "b22a2db9-1515-433b-861a-223d9081f430": {
+      "name": "Title Screen",
+      "path": "palette\\Title Screen.bin"
+    },
+    "1e6fc618-d497-40e6-9cd5-955a3e368541": {
+      "name": "Level Select",
+      "path": "palette\\Level Select.bin"
+    },
+    "b24c1b76-ecba-423a-a46b-f62e386f9247": {
+      "name": "Level Select (S2)",
+      "path": "palette\\Level Select (S2).bin"
+    },
+    "c71c4d72-b211-4a07-98a9-083e88a9c60d": {
+      "name": "Special Stage",
+      "path": "palette\\Special Stage.bin"
+    },
+    "20d44073-03f7-4c48-b729-bda754c82997": {
+      "name": "Special Stage Results",
+      "path": "palette\\Special Stage Results.bin"
+    },
+    "34628b5d-2582-4308-a13b-05a4a656c045": {
+      "name": "Special Stage Continue Bonus",
+      "path": "palette\\Special Stage Continue Bonus.bin"
+    },
+    "ce8aa297-298c-439c-b4dd-c9fe9fd7f2f1": {
+      "name": "Ending",
+      "path": "palette\\Ending - Original.bin"
+    },
+    "8f9bde6c-dc6f-41c2-8d62-66f5271b4c9f": {
+      "name": "Ending (Forever)",
+      "path": "palette\\Ending - Forever.bin"
+    },
+    "873e4bed-98e2-44a3-96fa-37c8626f9fa9": {
+      "name": "Super Ending",
+      "path": "palette\\Ending - SuperMod - Original.bin"
+    },
+    "07487c15-bed2-4f68-8839-f6fda559ae8a": {
+      "name": "Super Ending (Forever)",
+      "path": "palette\\Ending - SuperMod - Forever.bin"
+    },
+    "9db30000-4be1-44b3-a740-919d26829763": {
+      "name": "Super Ending (Flowers)",
+      "path": "palette\\Ending - SuperMod - Flowers.bin"
+    },
+    "8e1e972a-4e7c-44f1-8187-8ab34cbe4d82": {
+      "name": "Cycle: GHZ",
+      "path": "palette\\Cycle - GHZ.bin"
+    },
+    "e3034e15-7372-40c9-a9ba-7c52b236e0a5": {
+      "name": "Cycle: MZ (Unused)",
+      "path": "palette\\Cycle - MZ (Unused).bin"
+    },
+    "65a47385-09d1-48a0-bdb2-68fc5efed905": {
+      "name": "Cycle: SYZ 1",
+      "path": "palette\\Cycle - SYZ1.bin"
+    },
+    "f533b461-6646-4588-afac-c162db981944": {
+      "name": "Cycle: SYZ 2",
+      "path": "palette\\Cycle - SYZ2.bin"
+    },
+    "64451dde-36d6-4ced-9498-4e299430c541": {
+      "name": "Cycle: LZ Conveyors",
+      "path": "palette\\Cycle - LZ Conveyor Belt.bin"
+    },
+    "a0e1f4c2-e3db-4cd4-a81f-e32bed382e67": {
+      "name": "Cycle: LZ Conveyors (Water)",
+      "path": "palette\\Cycle - LZ Conveyor Belt Underwater.bin"
+    },
+    "017e6b1a-165f-405a-82a8-c944e020999b": {
+      "name": "Cycle: LZ Waterfall",
+      "path": "palette\\Cycle - LZ Waterfall.bin"
+    },
+    "ac2ab034-79dd-4ffd-848c-6fea63a2facf": {
+      "name": "Cycle: SLZ",
+      "path": "palette\\Cycle - SLZ.bin"
+    },
+    "c82e56c0-0124-4bbd-9720-86d70cfdfc15": {
+      "name": "Cycle: SBZ 1",
+      "path": "palette\\Cycle - SBZ 1.bin"
+    },
+    "06498e86-4e41-41e6-85f3-7bc3da343dea": {
+      "name": "Cycle: SBZ 2",
+      "path": "palette\\Cycle - SBZ 2.bin"
+    },
+    "aa03a265-6d0d-4a0b-ab78-d0f90d49c6f2": {
+      "name": "Cycle: SBZ 3",
+      "path": "palette\\Cycle - SBZ 3.bin"
+    },
+    "e6e93864-907c-40ce-8b87-ee9dc3950c56": {
+      "name": "Cycle: SBZ 4",
+      "path": "palette\\Cycle - SBZ 4.bin"
+    },
+    "64db4ec8-9def-4a21-ba64-24555d2ed1d4": {
+      "name": "Cycle: SBZ 5",
+      "path": "palette\\Cycle - SBZ 5.bin"
+    },
+    "7e7d0a4e-609a-40ad-8d40-353b28f9d551": {
+      "name": "Cycle: SBZ 6",
+      "path": "palette\\Cycle - SBZ 6.bin"
+    },
+    "75c1799e-b122-487e-a286-ac4025cd953c": {
+      "name": "Cycle: SBZ 7",
+      "path": "palette\\Cycle - SBZ 7.bin"
+    },
+    "7d5b0dd6-dc47-415e-9867-3ed5a55614e2": {
+      "name": "Cycle: SBZ 8",
+      "path": "palette\\Cycle - SBZ 8.bin"
+    },
+    "a4ea847e-ddf2-464b-b8a0-153445ac745c": {
+      "name": "Cycle: SBZ 9",
+      "path": "palette\\Cycle - SBZ 9.bin"
+    },
+    "7a199be5-e85e-4248-a793-87c14f827c75": {
+      "name": "Cycle: SBZ 10",
+      "path": "palette\\Cycle - SBZ 10.bin"
+    },
+    "31e8adb9-c253-450f-b133-6382f26018dc": {
+      "name": "Cycle: SBZ3 Waterfall",
+      "path": "palette\\Cycle - SBZ3 Waterfall.bin"
+    },
+    "a8bdf238-1d8f-4b6f-8050-bb34882c84aa": {
+      "name": "Cycle: Special Stage 1",
+      "path": "palette\\Cycle - Special Stage 1.bin"
+    },
+    "9938ed7e-c65c-43b2-94da-59b6a9aa2ee1": {
+      "name": "Cycle: Special Stage 2",
+      "path": "palette\\Cycle - Special Stage 2.bin"
+    },
+    "4db3f7c9-ed47-478f-aa5c-1a6f37828352": {
+      "name": "Cycle: Super Sonic",
+      "path": "palette\\Cycle - Super Sonic.bin"
+    },
+    "1a00f4fe-f63a-40d5-87e7-6d058ce4f116": {
+      "name": "Cycle: Super Sonic (Proto)",
+      "path": "palette\\Cycle - Super Sonic - Proto.bin"
+    },
+    "b0f61bbc-092e-4509-89b5-d43948ca9015": {
+      "name": "Cycle: Super Sonic (LZ Water)",
+      "path": "palette\\Cycle - LZ UW Super Sonic.bin"
+    },
+    "e0c78224-85a2-43f0-af0c-7f709e8682d7": {
+      "name": "Cycle: Super Sonic (SBZ3 Water)",
+      "path": "palette\\Cycle - SBZ3 UW Super Sonic.bin"
+    },
+    "fa02e10c-2544-4cdf-bcc0-89a76f8da3c4": {
+      "name": "Icon: GHZ",
+      "path": "palette\\S2 Level Select\\GHZ.bin"
+    },
+    "46fabb46-03ec-4d6e-b847-3515968928a2": {
+      "name": "Icon: MZ",
+      "path": "palette\\S2 Level Select\\MZ.bin"
+    },
+    "0b7d79d4-b88b-40c2-b182-3161555b936a": {
+      "name": "Icon: SYZ",
+      "path": "palette\\S2 Level Select\\SYZ.bin"
+    },
+    "ace86fc0-732f-49da-9780-1aca4d2d3af2": {
+      "name": "Icon: LZ",
+      "path": "palette\\S2 Level Select\\LZ.bin"
+    },
+    "a1d90e8d-f6e2-428e-bfa5-ae24f0205a92": {
+      "name": "Icon: SLZ",
+      "path": "palette\\S2 Level Select\\SLZ.bin"
+    },
+    "f47fb904-3542-4597-8e7b-5b2a6393a76a": {
+      "name": "Icon: SBZ 1",
+      "path": "palette\\S2 Level Select\\SBZ1.bin"
+    },
+    "03e590bc-4190-4012-b541-6066c0618584": {
+      "name": "Icon: SBZ 2",
+      "path": "palette\\S2 Level Select\\SBZ2.bin"
+    },
+    "8fecdd91-8b0b-489e-96e8-b024a6adf0e7": {
+      "name": "Icon: SBZ 3",
+      "path": "palette\\S2 Level Select\\SBZ3.bin"
+    },
+    "71c23739-e265-440a-a231-8037837f9be4": {
+      "name": "Icon: Special",
+      "path": "palette\\S2 Level Select\\Special.bin"
+    },
+    "93858db5-c24d-4091-9361-0e61ffbc013c": {
+      "name": "Icon: Sound",
+      "path": "palette\\S2 Level Select\\Sound Sonic.bin"
+    }
   },
+
   "sprites": {
-    "Badnik - Ball Hog": {
+    "99ffd30e-eb65-4ad1-811d-2660af3dc092": {
+      "name": "Badnik - Ball Hog",
       "format": 2,
       "vram_index": 0,
       "palette_line": 0,
@@ -101,7 +299,9 @@
         "label": ""
       }
     },
-    "Badnik - Moto Bug": {
+
+    "c371c332-b7a4-474a-bbda-95f3aba06ab2": {
+      "name": "Badnik - Moto Bug",
       "format": 2,
       "vram_index": 0,
       "palette_line": 0,
@@ -133,7 +333,9 @@
         "label": ""
       }
     },
-    "Giant Ring": {
+
+    "90719712-6a04-45ec-a535-54281ee37cea": {
+      "name": "Giant Ring",
       "format": 2,
       "vram_index": 0,
       "palette_line": 1,
@@ -165,9 +367,12 @@
         "label": "GRingDynPLC"
       }
     },
-    "Lamppost": {
+
+    "d0d204d2-1276-4284-a624-efdf013c6d7e": {
+      "name": "Lamppost",
       "format": 1,
       "vram_index": 0,
+      "palette_line": 0,
       "palettes": [
         {
           "path": "palette\\Sonic.bin",
@@ -194,10 +399,11 @@
         "enabled": false,
         "path": "",
         "label": ""
-      },
-      "palette_line": 0
+      }
     },
-    "Signpost": {
+
+    "dc660123-67bd-4b2a-b552-b957b12959e2": {
+      "name": "Signpost",
       "format": 2,
       "vram_index": 0,
       "palette_line": 0,
@@ -224,11 +430,13 @@
         "label": "SignpostDynPLC"
       }
     },
-    "Sonic": {
+
+    "1d0b61c2-c403-48db-9508-d580d99dad0d": {
+      "name": "Sonic",
       "format": 2,
       "vram_index": 0,
       "palette_line": 0,
-     "palettes": [
+      "palettes": [
         {
           "path": "palette\\Sonic.bin",
           "length": 1
@@ -252,6 +460,7 @@
       }
     }
   },
+
   "settings": {
     "assembler": "build.bat"
   }

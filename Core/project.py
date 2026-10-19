@@ -1,4 +1,5 @@
 import json
+from uuid import UUID, uuid4
 from copy import deepcopy
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -8,6 +9,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 class Project(QObject):
     project_loaded = pyqtSignal()
+    project_saved = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -16,66 +18,112 @@ class Project(QObject):
         self.root_dir = None # project root directory
         self.json_path = None # project JSON path
 
+    @staticmethod
+    def new_asset_id():
+        """
+        Generate a unique ID for a new project asset.
+        """
+        return str(uuid4())
+
+    @staticmethod
+    def validate_data(data):
+        """
+        Validate project data without altering it.
+        """
+        if not isinstance(data, dict):
+            raise ValueError("Project JSON must contain a dictionary.")
+
+        seen_ids = set()
+
+        # Check each section (Each editor has a section)
+        for section in ("palettes", "sprites"):
+            entries = data.get(section, {})
+
+            if not isinstance(entries, dict):
+                raise ValueError(f"Project '{section}' must contain a dictionary.")
+
+            for asset_id, config in entries.items():
+                if not isinstance(asset_id, str):
+                    raise ValueError(f"Asset IDs in '{section}' must be strings.")
+
+                try:
+                    parsed_id = UUID(asset_id)
+                except ValueError:
+                    raise ValueError(f"Asset ID {asset_id} in '{section}' is not a valid UUID.") from None
+
+                if str(parsed_id) != asset_id:
+                    raise ValueError(f"UUID {asset_id!r} must use lowercase, hyphenated form.")
+
+                if asset_id in seen_ids:
+                    raise ValueError(f"Duplicate asset ID: {asset_id}.")
+
+                # If valid, add to seen UUIDs
+                seen_ids.add(asset_id)
+
+                if not isinstance(config, dict):
+                    raise ValueError(f"Asset {asset_id!r} must contain a dictionary.")
+
+                # Get asset name
+                name = config.get("name")
+
+                if not isinstance(name, str) or not name.strip():
+                    raise ValueError(f"Asset {asset_id!r} must have a nonblank name.")
+
+                if section == "palettes":
+                    palette_path = config.get("path")
+
+                    if not isinstance(palette_path, str) or not palette_path.strip():
+                        raise ValueError(f"Palette {name!r} must have a nonblank path.")
+
+        if not isinstance(data.get("settings", {}), dict):
+            raise ValueError("Project settings must be a dictionary.")
+
+        rom_path = data.get("rom_path", "")
+
+        if rom_path is not None and not isinstance(rom_path, str):
+            raise ValueError("Project ROM path must be a path string.")
+
+    @staticmethod
+    def _json_object(pairs):
+        """
+        Read a JSON object without accepting duplicate keys.
+
+        We need this because a JSON reader keeps only the last occurrence of a repeated key.
+        Once that happens, the validator cannot detect that two entries originally shared the same UUID.
+        """
+        result = {}
+
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate JSON key: {key!r}.")
+
+            result[key] = value
+
+        return result
+
     @property
     def is_loaded(self):
         return self.data is not None
 
     def load(self, json_path):
         """
-        Validates and loads project data from json file.
+        Validate and load project data from JSON, committing only after success.
 
         Raises an exception if project data could not be loaded.
         """
         # Get absolute path
-        path = Path(json_path).resolve()
+        project_path = Path(json_path).resolve()
 
-        with open(path, "r", encoding="utf-8" ) as file:
-            loaded_data = json.load(file)
+        with open(project_path, "r", encoding="utf-8" ) as file:
+            loaded_data = json.load(file, object_pairs_hook=self._json_object)
 
-        if not isinstance(loaded_data, dict):
-            raise ValueError("Project JSON must contain a dictionary.")
-
-        # Get subsections of data
-        palettes = loaded_data.get("palettes", {})
-        sprites = loaded_data.get("sprites", {})
-        settings = loaded_data.get("settings", {})
-        rom_path = loaded_data.get("rom_path", "")
-
-        # Validate project palettes
-        if not isinstance(palettes, dict):
-            raise ValueError("Project palettes must be a dictionary.")
-
-        for name, config in palettes.items():
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError("Palette names must be nonblank strings.")
-
-            if not isinstance(config, dict):
-                raise ValueError(f"Palette '{name}' must contain a dictionary.")
-
-            palette_path = config.get("path")
-
-            if not isinstance(palette_path, str) or not palette_path.strip():
-                raise ValueError(f"Palette '{name}' must have a nonblank path.")
-
-        # Validate project sprites
-        if not isinstance(sprites, dict) or any(
-            not isinstance(build, dict)
-            for build in sprites.values()
-        ):
-            raise ValueError("Project sprites must contain build dictionaries.")
-
-        # Validate project settings
-        if not isinstance(settings, dict):
-            raise ValueError("Project settings must be a dictionary.")
-
-        # Validate ROM path (Maybe move this to settings dictionary)
-        if rom_path is not None and not isinstance(rom_path, str):
-            raise ValueError("Project ROM path must be a path string.")
+        # Validate project
+        self.validate_data(loaded_data)
 
         # Commit after validation success
         self.data = loaded_data
-        self.root_dir = path.parent
-        self.json_path = path
+        self.root_dir = project_path.parent
+        self.json_path = project_path
 
         # Signal that a new project is active
         self.project_loaded.emit()
@@ -149,10 +197,9 @@ class Project(QObject):
                 f"Project directory does not exist: {path.parent}"
             )
 
-        if not isinstance(proposed_data, dict):
-            raise ValueError("Project data must be a dictionary.")
-
+        # Validate proposed project data
         proposed = deepcopy(proposed_data)
+        self.validate_data(proposed)
         json_text = json.dumps(proposed, indent=2)
 
         return path, proposed, json_text
@@ -196,6 +243,7 @@ class Project(QObject):
 
         # Commit only after the file replacement succeeds
         self.data = proposed
+        self.project_saved.emit()
 
     def save(self, proposed_data):
         """Prepare, write, and commit proposed project data."""

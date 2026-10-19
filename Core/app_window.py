@@ -53,6 +53,9 @@ class TriadApp(QtW.QMainWindow):
         # Connecting function for when project is loaded
         self.project.project_loaded.connect(self.project_refresh_dashboard)
 
+        # Connecting function for when project is saved
+        self.project.project_saved.connect(self.project_refresh_asset_tree)
+
         # Status label
         self.statusLabel = QtW.QLabel("Status: Idle")
         self.statusLabel.setFixedHeight(20)
@@ -182,18 +185,19 @@ class TriadApp(QtW.QMainWindow):
         # Standalone palette resources
         palettes_item = add_folder(self.asset_tree, "Palettes")
 
-        for name in data.get("palettes", {}):
-            build_item = QtW.QTreeWidgetItem(palettes_item, [name])
-            build_item.setIcon(0, file_icon)
-            build_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "palette", "id": name})
+        for palette_id, config in data.get("palettes", {}).items():
+            item = QtW.QTreeWidgetItem(palettes_item, [config["name"]])
+            item.setIcon(0, file_icon)
+            item.setToolTip(0, config["path"])
+            item.setData(0, Qt.ItemDataRole.UserRole, {"type": "palette", "id": palette_id})
 
         # Sprite builds and their associated resources
         sprites_item = add_folder(self.asset_tree, "Sprites")
 
-        for name in data.get("sprites", {}):
-            build_item = QtW.QTreeWidgetItem(sprites_item, [name])
-            build_item.setIcon(0, file_icon)
-            build_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "sprite", "id": name})
+        for sprite_id, config in data.get("sprites", {}).items():
+            item = QtW.QTreeWidgetItem(sprites_item, [config["name"]])
+            item.setIcon(0, file_icon)
+            item.setData(0, Qt.ItemDataRole.UserRole, {"type": "sprite", "id": sprite_id})
 
         # Show resource categories with all folders collapsed
         self.asset_tree.expandToDepth(-1)
@@ -228,7 +232,7 @@ class TriadApp(QtW.QMainWindow):
 
             path = self.project.resolve_asset_path(palette["path"])
 
-            name = path.name
+            name = palette["name"]
             type_label = "Palette"
             details = [
                 ("Project path", palette["path"]),
@@ -246,7 +250,7 @@ class TriadApp(QtW.QMainWindow):
             mappings = build.get("mappings") or {}
             dplcs = build.get("dplcs") or {}
 
-            name = asset_id
+            name = build["name"]
             type_label = "Sprite Build"
             details = [
                 ("Art files", len(build.get("art") or [])),
