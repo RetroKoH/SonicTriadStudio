@@ -743,33 +743,6 @@ class PaletteEditor(QtW.QWidget):
     # --------------------------------------------------
     # Project File Selection
     # --------------------------------------------------
-    def proj_register_palette(self, name, path):
-        """
-        Activate a palette and register it in the editor's dropdown.
-        """
-        # Update the current palette file reference
-        self.active_palette_name = name
-        self.active_palette_path = path
-
-        if self.project.is_loaded:
-            palettes = self.project.data.get("palettes", {})
-        else:
-            palettes = dict(self.project_palettes)
-            palettes[name] = {"path": str(path)}
-
-        # Repopulate the dropdown list
-        self.proj_populate_pal_list(palettes)
-        was_blocked = self.pal_dropdown.blockSignals(True)
-
-        # Set selection to the new palette
-        try:
-            index = self.pal_dropdown.findText(name)
-            self.pal_dropdown.setCurrentIndex(index)
-            self.current_dropdown_index = index
-
-        finally:
-            self.pal_dropdown.blockSignals(was_blocked)
-
     def proj_populate_pal_list(self, palettes):
         """
         Populate the dropdown with stored palette assets.
@@ -800,9 +773,37 @@ class PaletteEditor(QtW.QWidget):
         finally:
             self.pal_dropdown.blockSignals(was_blocked)
 
-        # Only auto-load index 0 if we aren't currently targeting a specific file
+        # Only select the first palette when no palette is currently active
         if not was_blocked and not self.active_palette_name and palettes:
             self.pal_dropdown.setCurrentIndex(0)
+
+    def proj_register_palette(self, name, path):
+        """
+        Activate a palette and register it in the editor's dropdown.
+        """
+        # Update the current palette file reference
+        self.active_palette_name = name
+        self.active_palette_path = path
+
+        # Check for project, since we can edit palettes without loading one
+        if self.project.is_loaded:
+            palettes = self.project.data.get("palettes", {})
+        else:
+            palettes = dict(self.project_palettes)
+            palettes[name] = {"path": str(path)}
+
+        # Repopulate the dropdown list
+        self.proj_populate_pal_list(palettes)
+        was_blocked = self.pal_dropdown.blockSignals(True)
+
+        # Set selection to the new palette
+        try:
+            index = self.pal_dropdown.findText(name)
+            self.pal_dropdown.setCurrentIndex(index)
+            self.current_dropdown_index = index
+
+        finally:
+            self.pal_dropdown.blockSignals(was_blocked)
 
     def proj_add_palette(self, path, name=None):
         """
@@ -918,14 +919,14 @@ class PaletteEditor(QtW.QWidget):
 
     def _on_project_loaded(self):
         """
-        Reset the palette document and read the active project's list.
+        Reset palette data and read the active project's palette list.
         """
         # Discard the previous project's document association
         self.active_palette_name = None
         self.active_palette_path = None
         self.current_dropdown_index = -1
 
-        # Establish a blank document before selecting a new palette
+        # Clear data before selecting a palette
         self.palette_set_colors([QCOL_BLACK for _ in range(64)])
         self.record_clean_palette()
 

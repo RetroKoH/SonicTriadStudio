@@ -1027,43 +1027,11 @@ class SpriteEditor(QtW.QWidget):
             )
             return False
 
-        # Use the configuration objects committed by the service
-        self.project_sprite_builds = project.data["sprites"]
-        new_sprite = self.project_sprite_builds[sprite_name]
+        # Register and select the newly created build
+        self.proj_register_sprite(sprite_name)
 
-        # Select the new build without triggering another confirmation
-        was_blocked = self.spr_dropdown.blockSignals(True)
-
-        try:
-            if (
-                self.spr_dropdown.count() == 1
-                and self.spr_dropdown.itemText(0) == "No Sprites Found"
-            ):
-                self.spr_dropdown.clear()
-
-            self.spr_dropdown.setEnabled(True)
-            self.spr_dropdown.addItem(
-                sprite_name,
-                userData=new_sprite,
-            )
-
-            # Saving replaces the project dictionary. Refresh the
-            # configurations attached to existing dropdown entries too.
-            for index in range(self.spr_dropdown.count()):
-                name = self.spr_dropdown.itemText(index)
-
-                if name in self.project_sprite_builds:
-                    self.spr_dropdown.setItemData(
-                        index,
-                        self.project_sprite_builds[name],
-                    )
-
-            self.spr_dropdown.setCurrentText(sprite_name)
-
-        finally:
-            self.spr_dropdown.blockSignals(was_blocked)
-
-        # Clear prior assets and repopulate file manager
+        # Initialize the new build even though it is already selected
+        self._current_dropdown_index = -1
         self._on_sprite_dropdown_changed(confirm=False)
         return True
 
@@ -1142,7 +1110,7 @@ class SpriteEditor(QtW.QWidget):
         """
         Save the current build under a new build name, keeping asset paths.
         """
-        self.file_sprite_save(save_as=True)
+        return self.file_sprite_save(save_as=True)
     
     def file_sprite_save(self, *, save_as=False):
         """
@@ -1299,32 +1267,8 @@ class SpriteEditor(QtW.QWidget):
             )
             return False
 
-        # Refresh references from the newly committed project data
-        self.project_sprite_builds = project.data["sprites"]
-
-        was_blocked = self.spr_dropdown.blockSignals(True)
-
-        try:
-            if save_as:
-                # Add new name to the dropdown
-                self.spr_dropdown.addItem(sprite_name,
-                    userData=self.project_sprite_builds[sprite_name])
-            
-            for index in range(self.spr_dropdown.count()):
-                name = self.spr_dropdown.itemText(index)
-
-                if name in self.project_sprite_builds:
-                    self.spr_dropdown.setItemData(
-                        index, self.project_sprite_builds[name])
-
-                if save_as:
-                    # Keep loaded buffers and file associations. The normal dropdown
-                    # handler would clear them while switching to the new build.
-                    self.spr_dropdown.setCurrentText(sprite_name)
-                    self._current_dropdown_index = self.spr_dropdown.currentIndex()
-
-        finally:
-            self.spr_dropdown.blockSignals(was_blocked)
+        # Refresh configurations and select the saved build
+        self.proj_register_sprite(sprite_name)
 
         QtW.QMessageBox.information(self, "Project Saved",
             f"Sprite '{sprite_name}' configuration saved to project JSON.")
@@ -1516,27 +1460,52 @@ class SpriteEditor(QtW.QWidget):
         # Previous indices no longer refer to the rebuilt list
         self._current_dropdown_index = -1
 
-        self.spr_dropdown.blockSignals(True)
-        self.spr_dropdown.clear()
+        was_blocked = self.spr_dropdown.blockSignals(True)
 
-        if not sprite_builds:
-            self.spr_dropdown.addItem("No Sprites Found", userData=None)
-            self.spr_dropdown.setEnabled(False)
-            self.spr_dropdown.blockSignals(False)
-            return
+        try:
+            self.spr_dropdown.clear()
 
-        self.spr_dropdown.setEnabled(True)
-        for sprite_name, config in sprite_builds.items():
-            # Display key name in dropdown
-            self.spr_dropdown.addItem(sprite_name, userData=config)
+            if not sprite_builds:
+                self.spr_dropdown.addItem("No Sprites Found", userData=None)
+                self.spr_dropdown.setEnabled(False)
+            else:
+                self.spr_dropdown.setEnabled(True)
 
-        # Silently reset the selection
-        self.spr_dropdown.setCurrentIndex(-1)
-        self.spr_dropdown.blockSignals(False)
+                for sprite_name, config in sprite_builds.items():
+                    # Display key name in dropdown
+                    self.spr_dropdown.addItem(sprite_name, userData=config)
 
-        # Only auto-load index 0 if we aren't currently targeting a specific sprite build
-        if not self.active_sprite_build and self.spr_dropdown.count() > 0:
+            # Silently reset the selection
+            self.spr_dropdown.setCurrentIndex(-1)
+
+        finally:
+            self.spr_dropdown.blockSignals(was_blocked)
+
+        # Only select the first build when no build is currently active
+        if not was_blocked and not self.active_sprite_build and sprite_builds:
             self.spr_dropdown.setCurrentIndex(0)
+
+    def proj_register_sprite(self, name):
+        """
+        Activate a sprite build and register it in the editor's dropdown.
+        """
+        # Update the current sprite reference
+        self.active_sprite_build = name
+
+        # We don't check for a project, since sprite builds require a project
+
+        # Repopulate the dropdown list
+        self.proj_populate_sprite_list(self.project.data.get("sprites", {}))
+        was_blocked = self.spr_dropdown.blockSignals(True)
+
+        # Set selection to the new sprite build
+        try:
+            index = self.spr_dropdown.findText(name)
+            self.spr_dropdown.setCurrentIndex(index)
+            self._current_dropdown_index = index
+
+        finally:
+            self.spr_dropdown.blockSignals(was_blocked)
 
     # File Toolbar Dropdown function
     def _on_sprite_dropdown_changed(self, *, confirm=True):
@@ -1641,18 +1610,23 @@ class SpriteEditor(QtW.QWidget):
         self.dplc_name_input.setText(dplcs.get("label", ""))
         self.dplc_cb.setChecked(dplcs.get("enabled", False))
 
-        # Remember the accepted selection
+        # Remember the accepted build and selection
+        self.active_sprite_build = sprite_name
         self._current_dropdown_index = new_index
 
     def _on_project_loaded(self):
         """
         Reset sprite data and read the active project's build list.
         """
-        self.sprite_clear_data()
+        # Discard the previous project's document association
         self.active_sprite_build = None
+        self.current_dropdown_index = -1
 
-        sprite_builds = self.project.data.get("sprites", [])
-        self.proj_populate_sprite_list(sprite_builds)
+        # Clear data before selecting a sprite
+        self.sprite_clear_data()
+
+        # The existing population method selects the first sprite, if any
+        self.proj_populate_sprite_list(self.project.data.get("sprites", {}))
 
 
     # --------------------------------------------------
@@ -1692,10 +1666,9 @@ class SpriteEditor(QtW.QWidget):
 
         # Clear palette to black and invalidate file association
         self.palette_buffer_layout = None
-        black = QColor(0, 0, 0)
-        self.palette_colors = [black for _i in range(64)]
+        self.palette_colors = [QCOL_BLACK for _i in range(64)]
         for box in self.palette_boxes:
-            box.set_color(black)
+            box.set_color(QCOL_BLACK)
 
         # Clear art buffers and their file associations
         self.art_buffer_paths.clear()
