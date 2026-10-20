@@ -5,6 +5,16 @@ from PyQt6.QtGui import QDrag
 
 
 class AssetTree(QtW.QTreeWidget):
+    """
+    This subclass was created to divide some of the responsibilities
+    of the Project tab's asset tree.
+
+    This class: Handles mouse gestures and drag-and-drop; Makes requests
+    TriadApp: Connects these requests to project operations and shows errors
+        - project_asset_move()
+    Project: Changes, validates, and saves the JSON
+    """
+
     assetMoveRequested = pyqtSignal(str, object, int)
 
     def __init__(self, parent=None):
@@ -18,6 +28,34 @@ class AssetTree(QtW.QTreeWidget):
         self.setDragDropOverwriteMode(False)
         self.setDropIndicatorShown(True)
         self.setAutoExpandDelay(600)
+
+    def reveal_asset(self, asset_id):
+        """
+        Find an entry by UUID, expand its ancestors, and select it.
+        """
+        # Iterate through all tree items
+        iterator = QtW.QTreeWidgetItemIterator(self)
+
+        while iterator.value():
+            item = iterator.value()
+            metadata = item.data(0, Qt.ItemDataRole.UserRole)
+
+            # Match entries by UUID, since they can have identical names
+            if isinstance(metadata, dict) and metadata.get("id") == asset_id:
+                parent = item.parent()
+
+                # Expand every parent folder so the entry can be seen
+                while parent is not None:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+
+                # Select the entry and scroll it into view
+                self.setCurrentItem(item)
+                self.scrollToItem(item)
+                return
+
+            # Move to the next item
+            iterator += 1
 
     def startDrag(self, supportedActions: QtCore.Qt.DropAction) -> None:
         selected = self.selectedItems()

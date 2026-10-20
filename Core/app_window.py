@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import PyQt6.QtWidgets as QtW
 from PyQt6 import QtGui
 from PyQt6.QtCore import Qt
@@ -226,30 +224,27 @@ class TriadApp(QtW.QMainWindow):
                     Qt.ItemDataRole.UserRole,
                     {"type": asset_type, "id": entry["id"]})
 
-                # Folders
+                # All entry items can be dragged
+                flags = item.flags() | Qt.ItemFlag.ItemIsDragEnabled
+
+                # Folders (Can receive children)
                 if asset_type == "folder":
                     item.setIcon(0, folder_icon)
+                    flags |= Qt.ItemFlag.ItemIsDropEnabled
+                    item.setFlags(flags)
+
+                    # Populate this folder's children after flag configuration
                     add_entries(item, entry["children"])
 
-                # Assets
+                # Assets (cannot receive; allow inserting above/below)
                 else:
                     item.setIcon(0, file_icon)
+                    flags &= ~Qt.ItemFlag.ItemIsDropEnabled
+                    item.setFlags(flags)
 
                     # Set hover tooltip for palettes (Will do for others later)
                     if asset_type == "palette":
                         item.setToolTip(0, entry["path"])
-
-                # All entry items can be dragged
-                flags = item.flags() | Qt.ItemFlag.ItemIsDragEnabled
-
-                # Only folders can have items dropped into them
-                if asset_type == "folder":
-                    flags |= Qt.ItemFlag.ItemIsDropEnabled
-                # Asset items will still allow insertion above/below them
-                else:
-                    flags &= ~Qt.ItemFlag.ItemIsDropEnabled
-
-                item.setFlags(flags)
 
         add_entries(self.asset_tree, self.project.data.get("assets", []))
 
@@ -319,25 +314,7 @@ class TriadApp(QtW.QMainWindow):
             return
 
         self.asset_search.clear()
-
-        iterator = QtW.QTreeWidgetItemIterator(self.asset_tree)
-
-        while iterator.value():
-            item = iterator.value()
-            metadata = item.data(0, Qt.ItemDataRole.UserRole)
-
-            if isinstance(metadata, dict) and metadata.get("id") == folder["id"]:
-                parent = item.parent()
-
-                while parent is not None:
-                    parent.setExpanded(True)
-                    parent = parent.parent()
-
-                self.asset_tree.setCurrentItem(item)
-                self.asset_tree.scrollToItem(item)
-                break
-
-            iterator += 1
+        self.asset_tree.reveal_asset(folder["id"])
 
     def project_asset_add(self, asset_type):
         """
@@ -386,25 +363,7 @@ class TriadApp(QtW.QMainWindow):
             QtW.QMessageBox.warning(self, "Move Asset Error", f"Could not move asset:\n{e}")
             return
 
-        # project_saved has rebuild the tree
-        iterator = QtW.QTreeWidgetItemIterator(self.asset_tree)
-
-        while iterator.value():
-            item = iterator.value()
-            metadata = item.data(0, Qt.ItemDataRole.UserRole)
-
-            if isinstance(metadata, dict) and metadata.get("id") == asset_id:
-                parent = item.parent()
-
-                while parent is not None:
-                    parent.setExpanded(True)
-                    parent = parent.parent()
-
-                self.asset_tree.setCurrentItem(item)
-                self.asset_tree.scrollToItem(item)
-                break
-
-            iterator += 1
+        self.asset_tree.reveal_asset(asset_id)
 
     def project_asset_show_info(self, item):
         """
@@ -415,55 +374,51 @@ class TriadApp(QtW.QMainWindow):
         if item is None or not self.project.is_loaded:
             return
 
-        asset = item.data(0, Qt.ItemDataRole.UserRole)
+        metadata = item.data(0, Qt.ItemDataRole.UserRole)
 
         # Ignore items without asset metadata (i.e. Folders)
+        if not isinstance(metadata, dict):
+            return
+
+        # Retrieve the current asset definition by UUID
+        asset = self.project.get_asset(metadata.get("id"))
+
         if not isinstance(asset, dict):
             return
 
-        asset_type = asset.get("type")
-        asset_id = asset.get("id")
+        # Shared information for all asset types
+        asset_type = asset["type"]
+        name = asset["name"]
 
         # Palettes (Palette Editor)
         if asset_type == "palette":
-            palette = self.project.get_asset(asset_id)
+            path = self.project.resolve_asset_path(asset["path"])
 
-            if not isinstance(palette, dict):
-                return
-
-            path = self.project.resolve_asset_path(palette["path"])
-
-            name = palette["name"]
             type_label = "Palette"
             details = [
-                ("Project path", palette["path"]),
+                ("Project path", asset["path"]),
                 ("Full path", str(path)),
                 ("File exists", "Yes" if path.is_file() else "No"),
             ]
 
         # Sprite Builds (Sprites)
         elif asset_type == "sprite":
-            build = self.project.get_asset(asset_id)
+            mappings = asset.get("mappings") or {}
+            dplcs = asset.get("dplcs") or {}
 
-            if not isinstance(build, dict):
-                return
-
-            mappings = build.get("mappings") or {}
-            dplcs = build.get("dplcs") or {}
-
-            name = build["name"]
             type_label = "Sprite Build"
             details = [
-                ("Art files", len(build.get("art") or [])),
-                ("Palette files", len(build.get("palettes") or [])),
+                ("Art files", len(asset.get("art") or [])),
+                ("Palette files", len(asset.get("palettes") or [])),
                 ("Mappings", mappings.get("path") or "Not configured"),
                 ("DPLCs", dplcs.get("path") or "Not configured"),
             ]
 
         else:
+            # Folders do not have an asset info window
             return
 
-        # Open Asset Info window
+        # Open Asset Info window and delete it when closed
         self.asset_info_dialog = AssetInfo(name, type_label, details, self)
 
         self.asset_info_dialog.finished.connect(self.asset_info_dialog.deleteLater)
