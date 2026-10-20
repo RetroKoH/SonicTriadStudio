@@ -328,6 +328,59 @@ class Project(QObject):
         else:
             data.setdefault("assets", []).append(deepcopy(entry))
 
+    def move_asset(self, data, asset_id, parent_id=None, index=None):
+        """
+        Move an entry within a proposed project snapshot.
+        """
+        entries = data.get("assets", [])
+        location = self.find_asset_location(entries, asset_id)
+
+        if location is None:
+            raise ValueError("The asset no longer exists.")
+
+        source, old_index = location
+        entry = source[old_index]
+        destination = entries
+
+        # parent_id identifies the destination folder; None = means destination is the root
+        if parent_id is not None:
+            if parent_id == asset_id:
+                raise ValueError("A folder cannot contain itself.")
+
+            if entry["type"] == "folder" and self.find_asset_location(entry["children"], parent_id) is not None:
+                raise ValueError("A folder cannot move into one of its descendants.")
+
+            location = self.find_asset_location(entries, parent_id)
+
+            if location is None:
+                raise ValueError("The destination folder no longer exists.")
+
+            siblings, parent_index = location
+            parent = siblings[parent_index]
+
+            if parent["type"] != "folder":
+                raise ValueError("Only folders can contain assets.")
+
+            destination = parent["children"]
+
+        if index is None:
+            index = len(destination)
+
+        if type(index) is not int or not 0 <= index <= len(destination):
+            raise ValueError("Invalid destination position.")
+
+        # Removing an earlier item shifts later insertion positions
+        if destination is source:
+            if index > old_index:
+                index -= 1
+
+            if index == old_index:
+                return False
+
+        source.pop(old_index)
+        destination.insert(index, entry)
+        return True
+
     def remove_asset(self, data, asset_id):
         """
         Remove an entry from a proposed project snapshot.

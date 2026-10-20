@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 
 from Core.project import Project
 from Core.asset_info import AssetInfo
+from UI.asset_tree import AssetTree
 from UI.themes import apply_theme
 from Editors import *
 
@@ -128,11 +129,12 @@ class TriadApp(QtW.QMainWindow):
         self.project.project_loaded.connect(lambda: self.folder_add_btn.setEnabled(True))
 
         # Asset Tree
-        self.asset_tree = QtW.QTreeWidget()
+        self.asset_tree = AssetTree()
+        self.asset_tree.assetMoveRequested.connect(self.project_asset_move)
         self.asset_tree.setHeaderLabel("Assets")
         self.asset_tree.setIndentation(20)
         self.asset_tree.setUniformRowHeights(True)
-        self.asset_tree.setSortingEnabled(False)  # Preserve JSON order (for now)
+        self.asset_tree.setSortingEnabled(False)  # Preserve JSON order
         self.asset_tree.itemDoubleClicked.connect(self.project_asset_show_info)
         asset_layout.addWidget(self.asset_tree, stretch=1)
         content.addWidget(asset_panel)
@@ -237,6 +239,18 @@ class TriadApp(QtW.QMainWindow):
                     if asset_type == "palette":
                         item.setToolTip(0, entry["path"])
 
+                # All entry items can be dragged
+                flags = item.flags() | Qt.ItemFlag.ItemIsDragEnabled
+
+                # Only folders can have items dropped into them
+                if asset_type == "folder":
+                    flags |= Qt.ItemFlag.ItemIsDropEnabled
+                # Asset items will still allow insertion above/below them
+                else:
+                    flags &= ~Qt.ItemFlag.ItemIsDropEnabled
+
+                item.setFlags(flags)
+
         add_entries(self.asset_tree, self.project.data.get("assets", []))
 
         # Show resource categories with all folders collapsed
@@ -254,6 +268,7 @@ class TriadApp(QtW.QMainWindow):
         if not project.is_loaded:
             return
 
+        # Capture the selected entry before opening the name dialog
         selected = self.asset_tree.selectedItems()
         target_id = None
 
@@ -324,7 +339,6 @@ class TriadApp(QtW.QMainWindow):
 
             iterator += 1
 
-
     def project_asset_add(self, asset_type):
         """
         Create an asset using the relevant editor's existing New operation
@@ -348,6 +362,49 @@ class TriadApp(QtW.QMainWindow):
                 self.tabs.setCurrentWidget(editor)
 
             # Sprite editor doesn't have "dirty flag" yet
+
+    def project_asset_move(self, asset_id, parent_id, index):
+        """
+        Save a requested move, then reveal the moved entry.
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            return
+
+        try:
+            proposed = project.snapshot()
+
+            changed = project.move_asset(proposed, asset_id, parent_id, index)
+
+            if not changed:
+                return
+
+            project.save(proposed)
+
+        except (OSError, TypeError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Move Asset Error", f"Could not move asset:\n{e}")
+            return
+
+        # project_saved has rebuild the tree
+        iterator = QtW.QTreeWidgetItemIterator(self.asset_tree)
+
+        while iterator.value():
+            item = iterator.value()
+            metadata = item.data(0, Qt.ItemDataRole.UserRole)
+
+            if isinstance(metadata, dict) and metadata.get("id") == asset_id:
+                parent = item.parent()
+
+                while parent is not None:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+
+                self.asset_tree.setCurrentItem(item)
+                self.asset_tree.scrollToItem(item)
+                break
+
+            iterator += 1
 
     def project_asset_show_info(self, item):
         """
@@ -418,6 +475,8 @@ class TriadApp(QtW.QMainWindow):
         """
         # Get text query, removing all case distinctions
         query = text.strip().casefold()
+        # Disable drag-and-drop while searching
+        self.asset_tree.setDragEnabled(self.project.is_loaded and not query)
 
         def filter_item(item):
             asset = item.data(0, Qt.ItemDataRole.UserRole)
