@@ -111,11 +111,21 @@ class TriadApp(QtW.QMainWindow):
         self.asset_add_btn.setMenu(self.asset_add_menu)
         asset_controls.addWidget(self.asset_add_btn)
 
+        # Add Folder button
+        self.folder_add_btn = QtW.QToolButton()
+        self.folder_add_btn.setText(">")
+        self.folder_add_btn.setToolTip("Create a project folder")
+        self.folder_add_btn.clicked.connect(self.project_folder_add)
+
+        asset_controls.addWidget(self.folder_add_btn)
+
         asset_layout.addLayout(asset_controls)
 
-        # Asset creation requires a loaded project
+        # Asset/Folder creation requires a loaded project
         self.asset_add_btn.setEnabled(self.project.is_loaded)
+        self.folder_add_btn.setEnabled(self.project.is_loaded)
         self.project.project_loaded.connect(lambda: self.asset_add_btn.setEnabled(True))
+        self.project.project_loaded.connect(lambda: self.folder_add_btn.setEnabled(True))
 
         # Asset Tree
         self.asset_tree = QtW.QTreeWidget()
@@ -234,6 +244,86 @@ class TriadApp(QtW.QMainWindow):
 
         # Refresh search (even if field is empty)
         self.project_asset_filter(self.asset_search.text())
+
+    def project_folder_add(self):
+        """
+        Create a folder using the current tree selection.
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            return
+
+        selected = self.asset_tree.selectedItems()
+        target_id = None
+
+        if selected:
+            metadata = selected[0].data(0, Qt.ItemDataRole.UserRole)
+
+            if isinstance(metadata, dict):
+                target_id = metadata.get("id")
+
+        name, ok = QtW.QInputDialog.getText(self, "New Folder", "Folder name:", text="New Folder")
+
+        if not ok or not name.strip():
+            return
+
+        folder = {
+            "id": project.new_asset_id(),
+            "type": "folder",
+            "name": name.strip(),
+            "children": []
+        }
+
+        try:
+            proposed = project.snapshot()
+
+            if target_id is None:
+                project.set_asset(proposed, folder)
+
+            else:
+                location = project.find_asset_location(proposed.get("assets", []), target_id)
+
+                if location is None:
+                    raise ValueError("The selected item no longer exists.")
+
+                siblings, index = location
+                target = siblings[index]
+
+                if target["type"] == "folder":
+                    target["children"].append(folder)
+
+                else:
+                    project.set_asset(proposed, folder, beside_id=target_id)
+
+            project.save(proposed)
+
+        except (OSError, TypeError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Add Folder Error",
+                f"Could not add folder:\n{e}")
+            return
+
+        self.asset_search.clear()
+
+        iterator = QtW.QTreeWidgetItemIterator(self.asset_tree)
+
+        while iterator.value():
+            item = iterator.value()
+            metadata = item.data(0, Qt.ItemDataRole.UserRole)
+
+            if isinstance(metadata, dict) and metadata.get("id") == folder["id"]:
+                parent = item.parent()
+
+                while parent is not None:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+
+                self.asset_tree.setCurrentItem(item)
+                self.asset_tree.scrollToItem(item)
+                break
+
+            iterator += 1
+
 
     def project_asset_add(self, asset_type):
         """
