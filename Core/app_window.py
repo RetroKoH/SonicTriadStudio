@@ -170,37 +170,40 @@ class TriadApp(QtW.QMainWindow):
         Refreshes project asset tree when a new project is loaded.
         """
         self.asset_tree.clear()
-        project = self.project
-        data = project.data
         asset_style = self.asset_tree.style()
 
+        # To-Do: Have different file icons for different asset types
         folder_icon = asset_style.standardIcon(QtW.QStyle.StandardPixmap.SP_DirIcon)
         file_icon = asset_style.standardIcon(QtW.QStyle.StandardPixmap.SP_FileIcon)
 
-        def add_folder(parent, folder_name):
-            item = QtW.QTreeWidgetItem(parent, [folder_name])
-            item.setIcon(0, folder_icon)
-            return item
+        # Recursive function
+        def add_entries(parent, entries):
+            for entry in entries:
+                asset_type = entry["type"]
 
-        # Standalone palette resources
-        palettes_item = add_folder(self.asset_tree, "Palettes")
+                item = QtW.QTreeWidgetItem(parent, [entry["name"]])
 
-        for palette_id, config in data.get("palettes", {}).items():
-            item = QtW.QTreeWidgetItem(palettes_item, [config["name"]])
-            item.setIcon(0, file_icon)
-            item.setToolTip(0, config["path"])
-            item.setData(0, Qt.ItemDataRole.UserRole, {"type": "palette", "id": palette_id})
+                item.setData(0,
+                    Qt.ItemDataRole.UserRole,
+                    {"type": asset_type, "id": entry["id"]})
 
-        # Sprite builds and their associated resources
-        sprites_item = add_folder(self.asset_tree, "Sprites")
+                # Folders
+                if asset_type == "folder":
+                    item.setIcon(0, folder_icon)
+                    add_entries(item, entry["children"])
 
-        for sprite_id, config in data.get("sprites", {}).items():
-            item = QtW.QTreeWidgetItem(sprites_item, [config["name"]])
-            item.setIcon(0, file_icon)
-            item.setData(0, Qt.ItemDataRole.UserRole, {"type": "sprite", "id": sprite_id})
+                # Assets
+                else:
+                    item.setIcon(0, file_icon)
+
+                    # Set hover tooltip for palettes (Will do for others later)
+                    if asset_type == "palette":
+                        item.setToolTip(0, entry["path"])
+
+        add_entries(self.asset_tree, self.project.data.get("assets", []))
 
         # Show resource categories with all folders collapsed
-        self.asset_tree.expandToDepth(-1)
+        self.asset_tree.collapseAll()
 
         # Refresh search (even if field is empty)
         self.project_asset_filter(self.asset_search.text())
@@ -216,7 +219,7 @@ class TriadApp(QtW.QMainWindow):
 
         asset = item.data(0, Qt.ItemDataRole.UserRole)
 
-        # Category folders have no asset metadata.
+        # Ignore items without asset metadata (i.e. Folders)
         if not isinstance(asset, dict):
             return
 
@@ -225,7 +228,7 @@ class TriadApp(QtW.QMainWindow):
 
         # Palettes (Palette Editor)
         if asset_type == "palette":
-            palette = self.project.data.get("palettes", {}).get(asset_id)
+            palette = self.project.get_asset(asset_id)
 
             if not isinstance(palette, dict):
                 return
@@ -242,7 +245,7 @@ class TriadApp(QtW.QMainWindow):
 
         # Sprite Builds (Sprites)
         elif asset_type == "sprite":
-            build = self.project.data.get("sprites", {}).get(asset_id)
+            build = self.project.get_asset(asset_id)
 
             if not isinstance(build, dict):
                 return

@@ -674,7 +674,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Remove path from the list of palettes
         remaining_palettes = (
-            self.project.data.get("palettes", {})
+            self.project.get_assets("palette")
             if self.project.is_loaded else self.project_palettes
         )
 
@@ -788,7 +788,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Check for project, since we can edit palettes without loading one
         palettes = (
-            self.project.data.get("palettes", {})
+            self.project.get_assets("palette")
             if self.project.is_loaded else self.project_palettes
         )
 
@@ -815,10 +815,7 @@ class PaletteEditor(QtW.QWidget):
         path = project.resolve_asset_path(path)
 
         # Check for project, since we can edit palettes without loading one
-        palettes = (
-            project.data.get("palettes", {})
-            if project.is_loaded else self.project_palettes
-        )
+        palettes = project.get_assets("palette") if project.is_loaded else self.project_palettes
 
         # Reopening a registered file preserves its ID and name.
         for palette_id, config in palettes.items():
@@ -833,13 +830,15 @@ class PaletteEditor(QtW.QWidget):
         palette_id = project.new_asset_id()
 
         config = {
+            "id": palette_id,
+            "type": "palette",
             "name": name,
             "path": project.store_asset_path(path)
         }
 
         if project.is_loaded:
             proposed = project.snapshot()
-            proposed.setdefault("palettes", {})[palette_id] = config
+            project.set_asset(proposed, config, beside_id=self.active_palette_id)
             project.save(proposed)
 
         else:
@@ -858,12 +857,12 @@ class PaletteEditor(QtW.QWidget):
 
         if project.is_loaded:
             # If palette is not in the project, stop here
-            if palette_id not in project.data.get("palettes", {}):
+            if palette_id not in project.get_assets("palette"):
                 return
 
             # Find palette by UUID and remove it
             proposed = project.snapshot()
-            del proposed["palettes"][palette_id]
+            project.remove_asset(proposed, palette_id)
             project.save(proposed)
 
         else:
@@ -885,7 +884,7 @@ class PaletteEditor(QtW.QWidget):
             return
 
         palettes = (
-            self.project.data.get("palettes", {})
+            self.project.get_assets("palette")
             if self.project.is_loaded else self.project_palettes
         )
         config = palettes.get(palette_id)
@@ -948,7 +947,7 @@ class PaletteEditor(QtW.QWidget):
         self.record_clean_palette()
 
         # The existing population method selects the first palette, if any
-        self.proj_populate_pal_list(self.project.data.get("palettes", {}))
+        self.proj_populate_pal_list(self.project.get_assets("palette"))
 
 
     # --------------------------------------------------

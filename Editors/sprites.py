@@ -991,6 +991,8 @@ class SpriteEditor(QtW.QWidget):
 
         # Create an empty template for the sprite build
         new_sprite = {
+            "id": sprite_id,
+            "type": "sprite",
             "name": sprite_name,
             "format": 1,        # Sonic 1 by default
             "vram_index": 0,    # Global starting VRAM index
@@ -1008,7 +1010,7 @@ class SpriteEditor(QtW.QWidget):
         try:
             # Prepare the new build without changing active project data
             proposed = project.snapshot()
-            proposed.setdefault("sprites", {})[sprite_id] = new_sprite
+            project.set_asset(proposed, new_sprite, beside_id=self.active_sprite_id)
 
             # Save and commit through the shared service
             project.save(proposed)
@@ -1049,7 +1051,7 @@ class SpriteEditor(QtW.QWidget):
             return False
 
         # Ensure sprite data exists and retrieve it
-        sprite_data = project.data.get("sprites", {}).get(sprite_id)
+        sprite_data = project.get_assets("sprite").get(sprite_id)
 
         if not isinstance(sprite_data, dict):
             QtW.QMessageBox.warning(self, "Load Error",
@@ -1132,7 +1134,7 @@ class SpriteEditor(QtW.QWidget):
             return False
 
         # Ensure sprite data exists and retrieve it
-        sprite_data = project.data.get("sprites", {}).get(sprite_id)
+        sprite_data = project.get_assets("sprite").get(sprite_id)
 
         if not isinstance(sprite_data, dict):
             QtW.QMessageBox.warning(self, "Save Error",
@@ -1145,7 +1147,7 @@ class SpriteEditor(QtW.QWidget):
         if save_as:
             existing_names = {
                 config["name"]
-                for config in project.data.get("sprites", {}).values()
+                for config in project.get_assets("sprite").values()
             }
 
             # Suggest an unused name without replacing an existing build.
@@ -1176,8 +1178,12 @@ class SpriteEditor(QtW.QWidget):
             # Prepare the current build without changing active data
             proposed_project = project.snapshot()
             config = self.file_sprite_collect_config(sprite_data)
+
+            config["id"] = sprite_id
+            config["type"] = "sprite"
             config["name"] = sprite_name
-            proposed_project["sprites"][sprite_id] = config
+
+            project.set_asset(proposed_project, config, beside_id=sprite_data["id"])
 
             # Validate the destination and serialize before saving assets
             prepared_project = project.prepare_save(proposed_project)
@@ -1295,7 +1301,7 @@ class SpriteEditor(QtW.QWidget):
             return False
 
         # Ensure sprite data exists and retrieve it
-        sprite_data = project.data.get("sprites", {}).get(sprite_id)
+        sprite_data = project.get_assets("sprite").get(sprite_id)
 
         if not isinstance(sprite_data, dict):
             QtW.QMessageBox.warning(self, "Remove Sprite Error",
@@ -1318,7 +1324,7 @@ class SpriteEditor(QtW.QWidget):
         try:
             # Prepare removal without changing active project data
             proposed = project.snapshot()
-            del proposed["sprites"][sprite_id]
+            project.remove_asset(proposed, sprite_id)
 
             # Save and commit through the shared service
             project.save(proposed)
@@ -1336,7 +1342,7 @@ class SpriteEditor(QtW.QWidget):
         self.active_sprite_id = None
 
         # Rebuild the dropdown from the newly committed project data
-        self.proj_populate_sprite_list(project.data.get("sprites", {}))
+        self.proj_populate_sprite_list(project.get_assets("sprite"))
 
         return True
 
@@ -1498,7 +1504,7 @@ class SpriteEditor(QtW.QWidget):
         # We don't check for a project, since sprite builds require a project
 
         # Repopulate the dropdown list
-        self.proj_populate_sprite_list(self.project.data.get("sprites", {}))
+        self.proj_populate_sprite_list(self.project.get_assets("sprite"))
         was_blocked = self.spr_dropdown.blockSignals(True)
 
         # Set selection to the new sprite build
@@ -1522,7 +1528,7 @@ class SpriteEditor(QtW.QWidget):
         if sprite_id is None:
             return
 
-        sprite_data = project.data.get("sprites", {}).get(sprite_id)
+        sprite_data = project.get_assets("sprite").get(sprite_id)
 
         # Ensure sprite build exists in the project
         if not isinstance(sprite_data, dict):
@@ -1631,7 +1637,7 @@ class SpriteEditor(QtW.QWidget):
         self.sprite_clear_data()
 
         # The existing population method selects the first sprite, if any
-        self.proj_populate_sprite_list(self.project.data.get("sprites", {}))
+        self.proj_populate_sprite_list(self.project.get_assets("sprite"))
 
 
     # --------------------------------------------------
