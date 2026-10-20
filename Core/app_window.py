@@ -78,17 +78,44 @@ class TriadApp(QtW.QMainWindow):
         # LEFT PANEL: Asset Manager
         content = QtW.QHBoxLayout()
         asset_panel = QtW.QWidget()
-        asset_panel.setFixedWidth(200)
+        asset_panel.setFixedWidth(260)
 
         asset_layout = QtW.QVBoxLayout(asset_panel)
         asset_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Asset Creation and Filtering
+        asset_controls = QtW.QHBoxLayout()
+        asset_controls.setContentsMargins(0, 0, 0, 0)
 
         # Asset Filter Search
         self.asset_search = QtW.QLineEdit()
         self.asset_search.setPlaceholderText("Search Assets")
         self.asset_search.setClearButtonEnabled(True)
         self.asset_search.textChanged.connect(self.project_asset_filter)
-        asset_layout.addWidget(self.asset_search)
+        asset_controls.addWidget(self.asset_search, stretch=1)
+
+        # Add Asset button
+        self.asset_add_btn = QtW.QToolButton()
+        self.asset_add_btn.setText("+")
+        self.asset_add_btn.setToolTip("Create a project asset")
+        self.asset_add_btn.setPopupMode(QtW.QToolButton.ToolButtonPopupMode.InstantPopup)
+
+        self.asset_add_menu = QtW.QMenu(self.asset_add_btn)
+
+        add_palette = self.asset_add_menu.addAction("Add Palette")
+        add_palette.triggered.connect(lambda checked=False: self.project_asset_add("palette"))
+
+        add_sprite = self.asset_add_menu.addAction("Add Sprite")
+        add_sprite.triggered.connect(lambda checked=False: self.project_asset_add("sprite"))
+
+        self.asset_add_btn.setMenu(self.asset_add_menu)
+        asset_controls.addWidget(self.asset_add_btn)
+
+        asset_layout.addLayout(asset_controls)
+
+        # Asset creation requires a loaded project
+        self.asset_add_btn.setEnabled(self.project.is_loaded)
+        self.project.project_loaded.connect(lambda: self.asset_add_btn.setEnabled(True))
 
         # Asset Tree
         self.asset_tree = QtW.QTreeWidget()
@@ -207,6 +234,30 @@ class TriadApp(QtW.QMainWindow):
 
         # Refresh search (even if field is empty)
         self.project_asset_filter(self.asset_search.text())
+
+    def project_asset_add(self, asset_type):
+        """
+        Create an asset using the relevant editor's existing New operation
+        """
+        if not self.project.is_loaded:
+            return
+
+        if asset_type == "palette":
+            editor = self.palette_editor
+
+            def create_palette():
+                if editor.file_palette_new():
+                    self.tabs.setCurrentWidget(editor)
+
+            editor.check_unsaved_changes(create_palette)
+
+        elif asset_type == "sprite":
+            editor = self.sprite_editor
+
+            if editor.file_sprite_new():
+                self.tabs.setCurrentWidget(editor)
+
+            # Sprite editor doesn't have "dirty flag" yet
 
     def project_asset_show_info(self, item):
         """
