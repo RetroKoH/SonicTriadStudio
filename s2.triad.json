@@ -1,0 +1,177 @@
+{
+  "project_name": "Sonic 2",
+  "rom_path": "s2.bin",
+  "palettes": [
+    "art\\palettes\\SonicAndTails.bin",
+    "art\\palettes\\SonicAndTails2.bin",
+    "art\\palettes\\EHZ.bin",
+    "art\\palettes\\CPZ.bin",
+	"art\\palettes\\CPZ underwater.bin",
+    "art\\palettes\\ARZ.bin",
+	"art\\palettes\\ARZ underwater.bin",
+    "art\\palettes\\CNZ.bin",
+    "art\\palettes\\HTZ.bin",
+    "art\\palettes\\MCZ.bin",
+    "art\\palettes\\OOZ.bin",
+    "art\\palettes\\MTZ.bin",
+    "art\\palettes\\SCZ.bin",
+    "art\\palettes\\WFZ.bin",
+    "art\\palettes\\DEZ.bin",
+    "art\\palettes\\HPZ.bin",
+    "art\\palettes\\HPZ underwater.bin",
+    "art\\palettes\\Wood Zone.bin",
+    "art\\palettes\\CNZ Boss.bin",
+    "art\\palettes\\MCZ Boss.bin",
+    "art\\palettes\\OOZ Boss.bin",
+	"art\\palettes\\Sega screen.bin",
+    "art\\palettes\\Sega Screen 2.bin",
+    "art\\palettes\\Sega Screen 3.bin",
+    "art\\palettes\\Unused Sega logo.bin",
+    "art\\palettes\\Unused Sega logo 2.bin",
+	"art\\palettes\\Title screen.bin",
+    "art\\palettes\\Title Sonic.bin",
+    "art\\palettes\\Title Background.bin",
+    "art\\palettes\\Title Emblem.bin",
+    "art\\palettes\\Title Water.bin",
+    "art\\palettes\\Title Star Cycle.bin",
+	"art\\palettes\\Menu.bin",
+    "art\\palettes\\S2B Level Select.bin",
+    "art\\palettes\\Level Select Icons.bin",
+	"art\\palettes\\Special Stage Main.bin",
+    "art\\palettes\\Special Stage 1.bin",
+    "art\\palettes\\Special Stage 2.bin",
+    "art\\palettes\\Special Stage 3.bin",
+    "art\\palettes\\Special Stage 4.bin",
+    "art\\palettes\\Special Stage 5.bin",
+    "art\\palettes\\Special Stage 6.bin",
+    "art\\palettes\\Special Stage 7.bin",
+    "art\\palettes\\Special Stage 1 2p.bin",
+    "art\\palettes\\Special Stage 2 2p.bin",
+    "art\\palettes\\Special Stage 3 2p.bin",
+    "art\\palettes\\SS Emerald.bin",
+    "art\\palettes\\Special Stage Results Screen.bin",
+	"art\\palettes\\Ending Sonic.bin",
+    "art\\palettes\\Ending Tails.bin",
+    "art\\palettes\\Ending Super Sonic.bin",
+    "art\\palettes\\Ending Background.bin",
+    "art\\palettes\\Ending Photos.bin",
+    "art\\palettes\\Ending Cycle.bin",
+	"art\\palettes\\EHZ ARZ Water.bin",
+    "art\\palettes\\CPZ Cycle 1.bin",
+    "art\\palettes\\CPZ Cycle 2.bin",
+    "art\\palettes\\CPZ Cycle 3.bin",
+    "art\\palettes\\CNZ Cycle 1.bin",
+    "art\\palettes\\CNZ Cycle 3.bin",
+    "art\\palettes\\CNZ Cycle 4.bin",
+    "art\\palettes\\CNZ Boss Cycle 1.bin",
+    "art\\palettes\\CNZ Boss Cycle 2.bin",
+    "art\\palettes\\CNZ Boss Cycle 3.bin",
+    "art\\palettes\\Hill Top Lava.bin",
+    "art\\palettes\\MCZ Lantern.bin",
+    "art\\palettes\\OOZ Oil.bin",
+    "art\\palettes\\MTZ Cycle 1.bin",
+    "art\\palettes\\MTZ Cycle 2.bin",
+    "art\\palettes\\MTZ Cycle 3.bin",
+    "art\\palettes\\WFZ Fire Cycle.bin",
+    "art\\palettes\\WFZ Conveyor Cycle.bin",
+    "art\\palettes\\WFZ Cycle 1.bin",
+    "art\\palettes\\WFZ Cycle 2.bin",
+    "art\\palettes\\HPZ Water Cycle.bin",
+    "art\\palettes\\HPZ Underwater Cycle.bin",
+    "art\\palettes\\Wood Conveyor.bin",
+	"art\\palettes\\Super Sonic transformation.bin",
+    "art\\palettes\\CPZWater SS transformation.bin",
+    "art\\palettes\\ARZWater SS transformation.bin"
+  ],
+  "sprites": {
+    "Badnik (EHZ) - Masher": {
+      "format": 2,
+      "vram_index": 0,
+      "palette_line": 0,
+      "palettes": [
+        {
+          "path": "art\\palettes\\SonicAndTails.bin",
+          "length": 1
+        },
+        {
+          "path": "art\\palettes\\EHZ.bin",
+          "length": 3
+        }
+      ],
+      "art": [
+        {
+          "path": "art\\nemesis\\EHZ Pirahna badnik.nem",
+          "compression": "Nemesis",
+          "offset": 0,
+          "count": 0
+        }
+      ],
+      "mappings": {
+        "path": "mappings\\sprite\\obj5C.asm",
+        "label": "Map_obj5C"
+      },
+      "dplcs": {
+        "enabled": false,
+        "path": "",
+        "label": ""
+      }
+    },
+    "Sonic": {
+      "format": 2,
+      "vram_index": 0,
+      "palette_line": 0,
+      "palettes": [
+        {
+          "path": "art\\palettes\\SonicAndTails.bin",
+          "length": 1
+        }
+      ],
+      "art": [
+        {
+          "path": "art\\uncompressed\\Sonic's art.bin",
+          "compression": "Uncompressed",
+          "offset": 0
+        }
+      ],
+      "mappings": {
+        "path": "mappings\\sprite\\Sonic.asm",
+        "label": "Map_Sonic"
+      },
+      "dplcs": {
+        "enabled": true,
+        "path": "mappings\\spriteDPLC\\Sonic.asm",
+        "label": ".offsets"
+      }
+    },
+	"Tails": {
+      "format": 2,
+      "vram_index": 0,
+      "palette_line": 0,
+      "palettes": [
+        {
+          "path": "art\\palettes\\SonicAndTails.bin",
+          "length": 1
+        }
+      ],
+      "art": [
+        {
+          "path": "art\\uncompressed\\Tails's art.bin",
+          "compression": "Uncompressed",
+          "offset": 0
+        }
+      ],
+      "mappings": {
+        "path": "mappings\\sprite\\Tails.asm",
+        "label": "Map_Tails"
+      },
+      "dplcs": {
+        "enabled": true,
+        "path": "mappings\\spriteDPLC\\Tails.asm",
+        "label": "DPLC_Tails"
+      }
+    }
+  },
+  "settings": {
+    "assembler": "build.bat"
+  }
+}
