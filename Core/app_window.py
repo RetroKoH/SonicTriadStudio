@@ -5,7 +5,7 @@ from PyQt6 import QtGui
 from PyQt6.QtCore import Qt
 
 from Core.project import Project
-from Core.asset_info import AssetInfo
+from Dialogs.asset_info import AssetInfo
 from UI.asset_tree import AssetTree
 from UI.themes import apply_theme
 from Editors import *
@@ -407,16 +407,13 @@ class TriadApp(QtW.QMainWindow):
         asset_type = asset["type"]
         name = asset["name"]
 
+        palette_path = None
+
         # Palettes (Palette Editor)
         if asset_type == "palette":
-            path = self.project.resolve_asset_path(asset["path"])
-
             type_label = "Palette"
-            details = [
-                ("Project path", asset["path"]),
-                ("Full path", str(path)),
-                ("File exists", "Yes" if path.is_file() else "No"),
-            ]
+            details = []
+            palette_path = asset["path"]
 
         # Sprite Builds (Sprites)
         elif asset_type == "sprite":
@@ -435,52 +432,96 @@ class TriadApp(QtW.QMainWindow):
             # Folders do not have an asset info window
             return
 
+        # Capture the UUID before an update rebuilds the tree
+        asset_id = asset["id"]
+
         # Open Asset Info window and delete it when closed
-        self.asset_info_dialog = AssetInfo(name, type_label, details, self)
+        dialog = AssetInfo(name, type_label, details,
+            apply_changes=lambda new_name, new_path:
+            self.project_asset_update(asset_id, name=new_name, path=new_path, parent=dialog),
+            project=self.project, parent=self, palette_path=palette_path)
+        self.asset_info_dialog = dialog
 
-        self.asset_info_dialog.finished.connect(self.asset_info_dialog.deleteLater)
-        self.asset_info_dialog.open()
+        dialog.finished.connect(dialog.deleteLater)
+        dialog.open()
 
-    def project_asset_rename(self, asset_id):
+    def project_asset_update(self, asset_id, name=None, path=None, parent=None):
         """
-        Rename a project entry without changing its identity
+        Update a project entry without changing its identity.
         """
         project = self.project
 
         if not project.is_loaded:
-            return
+            return False
 
         asset = project.get_asset(asset_id)
 
         if not isinstance(asset, dict):
-            return
+            return False
 
-        name, ok = QtW.QInputDialog.getText(self, "Rename", "New name:", text=asset["name"])
+        dialog_parent = self if parent is None else parent
 
-        if not ok:
-            return
+        # Context menu Rename prompts for a name while Asset Info supplies one
+        if name is None:
+            name, ok = QtW.QInputDialog.getText(dialog_parent, "Rename", "New name:", text=asset["name"])
+
+            if not ok:
+                return False
 
         name = name.strip()
 
         if not name:
-            QtW.QMessageBox.warning(self, "Invalid Name", "Please enter a nonblank name.")
-            return
-
-        if name == asset["name"]:
-            return
+            QtW.QMessageBox.warning(dialog_parent, "Invalid Name", "Please enter a nonblank name.")
+            return False
 
         try:
-            # set_asset copies the configuration into the snapshot
             config = dict(asset)
             config["name"] = name
+            palette_path = None
+            overwrite = False
 
-            proposed = project.snapshot()
-            project.set_asset(proposed, config)
-            project.save(proposed)
+            if path is not None:
+                if asset["type"] != "palette":
+                    raise ValueError("Only palettes have an editable path here.")
+
+                if not path.strip():
+                    raise ValueError("Please enter a nonblank palette path.")
+
+                source = project.resolve_asset_path(asset["path"])
+                palette_path = project.resolve_asset_path(path.strip())
+
+                if palette_path.is_dir():
+                    raise ValueError("The palette path points to a folder.")
+
+                config["path"] = project.store_asset_path(palette_path)
+
+                # Confirm at Ok so manually entered paths are covered too
+                if source != palette_path and source.is_file() and palette_path.exists():
+                    answer = QtW.QMessageBox.question(dialog_parent, "Replace Palette File",
+                        f"Replace the existing file at:\n{palette_path}\n\n"
+                        "Any other assets using this destination will also "
+                        "see the replacement contents.",
+                        QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+                        QtW.QMessageBox.StandardButton.No)
+
+                    if answer != QtW.QMessageBox.StandardButton.Yes:
+                        return False
+
+                    overwrite = True
+
+            # An unchanged definition does not need another save
+            if config == asset:
+                return True
+
+            cleanup_warning = project.save_asset_update(asset_id, config, overwrite=overwrite)
 
         except (OSError, TypeError, ValueError) as e:
-            QtW.QMessageBox.warning(self, "Rename Error", f"Could not rename entry:\n{e}")
-            return
+            QtW.QMessageBox.warning(dialog_parent, "Asset Update Error", f"Could not update asset:\n{e}")
+            return False
+
+        # Keep the active palette's Save destination in sync
+        if palette_path is not None and self.palette_editor.active_palette_id == asset_id:
+            self.palette_editor.active_palette_path = palette_path
 
         # Refresh cached definitions without reloading editor contents
         self.palette_editor.project_palettes = project.get_assets("palette")
@@ -505,6 +546,19 @@ class TriadApp(QtW.QMainWindow):
         # Show the renamed entry even if its old name matched a search
         self.asset_search.clear()
         self.asset_tree.reveal_asset(asset_id)
+
+        # Report cleanup trouble after an otherwise successful update
+        if cleanup_warning:
+            QtW.QMessageBox.warning(
+                dialog_parent, "Asset Updated", cleanup_warning
+            )
+        return True
+
+    def project_asset_rename(self, asset_id):
+        """
+        Wrapper to preserve the context menu Rename function.
+        """
+        return self.project_asset_update(asset_id)
 
     def project_asset_duplicate(self, asset_id):
         """

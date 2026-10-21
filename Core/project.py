@@ -2,7 +2,8 @@ import json
 from uuid import UUID, uuid4
 from copy import deepcopy
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, mkdtemp
+from shutil import copy2, rmtree
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -392,3 +393,130 @@ class Project(QObject):
 
         siblings, index = location
         del siblings[index]
+
+    def is_asset_file_shared(self, asset_id, path):
+        """
+        Check whether another palette asset references this file.
+
+        Will update this to check for certain asset types in the future, if needed.
+        This is namely for editors without dedicated File Managers.
+        """
+        path = self.resolve_asset_path(path)
+
+        return any(
+            other_id != asset_id
+            and entry["type"] == "palette"
+            and self.resolve_asset_path(entry["path"]) == path
+            for other_id, entry in self.asset_index.items()
+        )
+
+    def save_asset_update(self, asset_id, config, overwrite=False):
+        """
+        Save an entry and relocate its palette file when needed
+
+        Return a warning if the update succeeds but the old file remains
+        """
+        asset = self.get_asset(asset_id)
+
+        if asset is None:
+            raise ValueError("The asset no longer exists.")
+
+        # set_asset copies the configuration into the snapshot
+        proposed = self.snapshot()
+        self.set_asset(proposed, config)
+        prepared = self.prepare_save(proposed)
+
+        if asset["type"] != "palette":
+            self.save_prepared(prepared)
+            return None
+
+        source = self.resolve_asset_path(asset["path"])
+        destination = self.resolve_asset_path(config["path"])
+
+        if source == destination:
+            self.save_prepared(prepared)
+            return None
+
+        if source == self.json_path or destination == self.json_path:
+            raise ValueError("The project JSON cannot be used as a palette file.")
+
+        if destination.exists() and not destination.is_file():
+            raise ValueError("The destination is not a regular file.")
+
+        # Repair a missing reference by selecting an existing file
+        if not source.is_file():
+            if destination.is_file():
+                self.save_prepared(prepared)
+                return None
+
+            raise FileNotFoundError(
+                "The current palette file is missing. Select an existing "
+                "palette file first to restore its reference."
+            )
+
+        if not destination.parent.is_dir():
+            raise FileNotFoundError("The destination folder does not exist.")
+
+        shared = self.is_asset_file_shared(asset_id, source)
+
+        work_dir = Path(
+            mkdtemp(prefix=".triad-palette-", dir=destination.parent)
+        )
+        staged = work_dir / "palette"
+        backup = work_dir / "previous-destination"
+        keep_recovery = False
+
+        try:
+            # Prepare the new file before replacing any existing destination
+            copy2(source, staged)
+            had_destination = destination.exists()
+
+            if had_destination:
+                if not overwrite:
+                    raise FileExistsError("The destination already exists.")
+
+                if not destination.is_file():
+                    raise ValueError("The destination is not a regular file.")
+
+                copy2(destination, backup)
+
+            staged.replace(destination)
+
+            try:
+                self.save_prepared(prepared)
+
+            except (OSError, TypeError, ValueError) as save_error:
+                # Restore the destination if saving the project fails
+                try:
+                    if had_destination:
+                        backup.replace(destination)
+                    else:
+                        destination.unlink(missing_ok=True)
+
+                except OSError as restore_error:
+                    keep_recovery = True
+
+                    raise OSError(
+                        f"Project save failed: {save_error}\n"
+                        f"Could not restore the destination: {restore_error}\n"
+                        f"The source file is unchanged. Recovery files: {work_dir}"
+                    ) from save_error
+
+                raise
+
+        finally:
+            if not keep_recovery:
+                rmtree(work_dir, ignore_errors=True)
+
+        # Shared source files stay in place for the other entries
+        if not shared:
+            try:
+                source.unlink()
+
+            except OSError as e:
+                return (
+                    "The asset was updated, but its original file "
+                    f"could not be removed:\n{source}\n\n{e}"
+                )
+
+        return None
