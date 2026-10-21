@@ -21,6 +21,8 @@ class AssetTree(QtW.QTreeWidget):
     assetRenameRequested = pyqtSignal(str)
     assetDuplicateRequested = pyqtSignal(str)
     assetRemoveRequested = pyqtSignal(str)
+
+    assetAddRequested = pyqtSignal(str)
     folderAddRequested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -63,15 +65,18 @@ class AssetTree(QtW.QTreeWidget):
         rename_action = None
         duplicate_action = None
         remove_action = None
+
+        # Add actions
+        palette_action = None
+        sprite_action = None
         folder_action = None
 
         if item is None:
             # Enable asset creation here once it uses the tree destination
             asset_menu = menu.addMenu("Add Asset")
-            asset_menu.addAction("Palette")
-            asset_menu.addAction("Sprite Build")
+            palette_action = asset_menu.addAction("Palette")
+            sprite_action = asset_menu.addAction("Sprite Build")
             # Add more asset types later
-            asset_menu.setEnabled(False)
 
             folder_action = menu.addAction("Add Folder")
 
@@ -80,6 +85,11 @@ class AssetTree(QtW.QTreeWidget):
                 folder_action = menu.addAction("Add Folder")
             else:
                 open_action = menu.addAction("Open")
+
+                # Make Open BOLD
+                font = open_action.font()
+                font.setBold(True)
+                open_action.setFont(font)
 
             rename_action = menu.addAction("Rename")
 
@@ -97,7 +107,13 @@ class AssetTree(QtW.QTreeWidget):
             if chosen is None:
                 return
 
-            if chosen == open_action:
+            if chosen == palette_action:
+                self.assetAddRequested.emit("palette")
+
+            elif chosen == sprite_action:
+                self.assetAddRequested.emit("sprite")
+
+            elif chosen == open_action:
                 self.assetOpenRequested.emit(item)
 
             elif chosen == rename_action:

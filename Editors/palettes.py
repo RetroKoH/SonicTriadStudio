@@ -467,7 +467,7 @@ class PaletteEditor(QtW.QWidget):
     # --------------------------------------------------
     # File Operations
     # --------------------------------------------------
-    def file_palette_new(self):
+    def file_palette_new(self, at_root=False):
         """
         Creates and saves a new palette.
         Registers it and activates it for use.
@@ -505,7 +505,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Project exclusive block
         try:
-            palette_id = self.proj_add_palette(path)
+            palette_id = self.proj_add_palette(path, at_root=at_root)
 
         except (OSError, TypeError, ValueError) as e:
             QtW.QMessageBox.warning(self, "Project Update Error",
@@ -800,7 +800,7 @@ class PaletteEditor(QtW.QWidget):
         finally:
             self.pal_dropdown.blockSignals(was_blocked)
 
-    def proj_add_palette(self, path, name=None):
+    def proj_add_palette(self, path, name=None, at_root=False):
         """
         Register a palette to the project and return its UUID.
 
@@ -833,7 +833,11 @@ class PaletteEditor(QtW.QWidget):
 
         if project.is_loaded:
             proposed = project.snapshot()
-            project.set_asset(proposed, config, beside_id=self.active_palette_id)
+
+            # Root creation ignores the editor's active asset
+            project.set_asset(proposed, config,
+                beside_id=None if at_root else self.active_palette_id)
+
             project.save(proposed)
 
         else:

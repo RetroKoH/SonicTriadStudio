@@ -949,7 +949,7 @@ class SpriteEditor(QtW.QWidget):
     # --------------------------------------------------
     # File Operations
     # --------------------------------------------------
-    def file_sprite_new(self):
+    def file_sprite_new(self, at_root=False):
         """
         Create and select an empty sprite build definition.
 
@@ -1010,7 +1010,10 @@ class SpriteEditor(QtW.QWidget):
         try:
             # Prepare the new build without changing active project data
             proposed = project.snapshot()
-            project.set_asset(proposed, new_sprite, beside_id=self.active_sprite_id)
+
+            # Root creation ignores the editor's active asset
+            project.set_asset(proposed, new_sprite,
+                beside_id=None if at_root else self.active_sprite_id)
 
             # Save and commit through the shared service
             project.save(proposed)

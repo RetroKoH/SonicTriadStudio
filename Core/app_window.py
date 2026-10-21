@@ -144,6 +144,8 @@ class TriadApp(QtW.QMainWindow):
         self.asset_tree.assetRenameRequested.connect(self.project_asset_rename)
         self.asset_tree.assetDuplicateRequested.connect(self.project_asset_duplicate)
         self.asset_tree.assetRemoveRequested.connect(self.project_asset_remove)
+
+        self.asset_tree.assetAddRequested.connect(lambda asset_type: self.project_asset_add(asset_type, at_root=True))
         self.asset_tree.folderAddRequested.connect(self.project_folder_add)
 
         # Tree actions require a loaded project
@@ -329,9 +331,9 @@ class TriadApp(QtW.QMainWindow):
         self.asset_search.clear()
         self.asset_tree.reveal_asset(folder["id"])
 
-    def project_asset_add(self, asset_type):
+    def project_asset_add(self, asset_type, at_root=False):
         """
-        Create an asset using the relevant editor's existing New operation
+        Create an asset using the relevant editor's existing New operation.
         """
         if not self.project.is_loaded:
             return
@@ -340,7 +342,8 @@ class TriadApp(QtW.QMainWindow):
             editor = self.palette_editor
 
             def create_palette():
-                if editor.file_palette_new():
+                if editor.file_palette_new(at_root=at_root):
+                    self.asset_tree.reveal_asset(editor.active_palette_id)
                     self.tabs.setCurrentWidget(editor)
 
             editor.check_unsaved_changes(create_palette)
@@ -348,7 +351,8 @@ class TriadApp(QtW.QMainWindow):
         elif asset_type == "sprite":
             editor = self.sprite_editor
 
-            if editor.file_sprite_new():
+            if editor.file_sprite_new(at_root=at_root):
+                self.asset_tree.reveal_asset(editor.active_sprite_id)
                 self.tabs.setCurrentWidget(editor)
 
             # Sprite editor doesn't have "dirty flag" yet
