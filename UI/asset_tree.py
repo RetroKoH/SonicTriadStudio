@@ -15,7 +15,13 @@ class AssetTree(QtW.QTreeWidget):
     Project: Changes, validates, and saves the JSON
     """
 
+    # Request signals
     assetMoveRequested = pyqtSignal(str, object, int)
+    assetOpenRequested = pyqtSignal(object)
+    assetRenameRequested = pyqtSignal(str)
+    assetDuplicateRequested = pyqtSignal(str)
+    assetRemoveRequested = pyqtSignal(str)
+    folderAddRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -28,6 +34,87 @@ class AssetTree(QtW.QTreeWidget):
         self.setDragDropOverwriteMode(False)
         self.setDropIndicatorShown(True)
         self.setAutoExpandDelay(600)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+
+    def show_context_menu(self, position):
+        """
+        Show actions for a right-clicked entry item.
+        """
+        item = self.itemAt(position)
+        metadata = None
+
+        if item is not None:
+            metadata = item.data(0, Qt.ItemDataRole.UserRole)
+
+            if not isinstance(metadata, dict):
+                return
+
+            # Select the item that was right-clicked
+            self.setCurrentItem(item)
+
+        else:
+            # Empty space targets the project root
+            self.clearSelection()
+            self.setCurrentItem(None)
+
+        menu = QtW.QMenu(self)
+        open_action = None
+        rename_action = None
+        duplicate_action = None
+        remove_action = None
+        folder_action = None
+
+        if item is None:
+            # Enable asset creation here once it uses the tree destination
+            asset_menu = menu.addMenu("Add Asset")
+            asset_menu.addAction("Palette")
+            asset_menu.addAction("Sprite Build")
+            # Add more asset types later
+            asset_menu.setEnabled(False)
+
+            folder_action = menu.addAction("Add Folder")
+
+        else:
+            if metadata["type"] == "folder":
+                folder_action = menu.addAction("Add Folder")
+            else:
+                open_action = menu.addAction("Open")
+
+            rename_action = menu.addAction("Rename")
+
+            if metadata["type"] != "folder":
+                duplicate_action = menu.addAction("Duplicate")
+
+            menu.addSeparator()
+            remove_action = menu.addAction("Remove")
+
+        # Dispatch signal to trigger menu action
+        try:
+            chosen = menu.exec(self.viewport().mapToGlobal(position))
+
+            # Stop if the menu was dismissed
+            if chosen is None:
+                return
+
+            if chosen == open_action:
+                self.assetOpenRequested.emit(item)
+
+            elif chosen == rename_action:
+                self.assetRenameRequested.emit(metadata["id"])
+
+            elif chosen == duplicate_action:
+                self.assetDuplicateRequested.emit(metadata["id"])
+
+            elif chosen == remove_action:
+                self.assetRemoveRequested.emit(metadata["id"])
+
+            elif chosen == folder_action:
+                self.folderAddRequested.emit()
+
+        finally:
+            # Remove the temporary menu after use
+            menu.deleteLater()
 
     def reveal_asset(self, asset_id):
         """

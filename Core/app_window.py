@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import PyQt6.QtWidgets as QtW
 from PyQt6 import QtGui
 from PyQt6.QtCore import Qt
@@ -136,6 +138,17 @@ class TriadApp(QtW.QMainWindow):
         self.asset_tree.itemDoubleClicked.connect(self.project_asset_show_info)
         asset_layout.addWidget(self.asset_tree, stretch=1)
         content.addWidget(asset_panel)
+
+        # Context menu actions
+        self.asset_tree.assetOpenRequested.connect(self.project_asset_show_info)
+        self.asset_tree.assetRenameRequested.connect(self.project_asset_rename)
+        self.asset_tree.assetDuplicateRequested.connect(self.project_asset_duplicate)
+        self.asset_tree.assetRemoveRequested.connect(self.project_asset_remove)
+        self.asset_tree.folderAddRequested.connect(self.project_folder_add)
+
+        # Tree actions require a loaded project
+        self.asset_tree.setEnabled(self.project.is_loaded)
+        self.project.project_loaded.connect(lambda: self.asset_tree.setEnabled(True))
 
         # Project JSON Dropbox
         self.dropzone = DropWidget(self, "Drop Project JSON file here")
@@ -423,6 +436,252 @@ class TriadApp(QtW.QMainWindow):
 
         self.asset_info_dialog.finished.connect(self.asset_info_dialog.deleteLater)
         self.asset_info_dialog.open()
+
+    def project_asset_rename(self, asset_id):
+        """
+        Rename a project entry without changing its identity
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            return
+
+        asset = project.get_asset(asset_id)
+
+        if not isinstance(asset, dict):
+            return
+
+        name, ok = QtW.QInputDialog.getText(self, "Rename", "New name:", text=asset["name"])
+
+        if not ok:
+            return
+
+        name = name.strip()
+
+        if not name:
+            QtW.QMessageBox.warning(self, "Invalid Name", "Please enter a nonblank name.")
+            return
+
+        if name == asset["name"]:
+            return
+
+        try:
+            # set_asset copies the configuration into the snapshot
+            config = dict(asset)
+            config["name"] = name
+
+            proposed = project.snapshot()
+            project.set_asset(proposed, config)
+            project.save(proposed)
+
+        except (OSError, TypeError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Rename Error", f"Could not rename entry:\n{e}")
+            return
+
+        # Refresh cached definitions without reloading editor contents
+        self.palette_editor.project_palettes = project.get_assets("palette")
+        self.sprite_editor.project_sprite_builds = project.get_assets("sprite")
+
+        # Change the matching label while preserving the current selection
+        for dropdown in (
+            self.palette_editor.pal_dropdown,
+            self.sprite_editor.spr_dropdown,
+        ):
+            index = dropdown.findData(asset_id)
+
+            if index >= 0:
+                was_blocked = dropdown.blockSignals(True)
+
+                try:
+                    dropdown.setItemText(index, name)
+
+                finally:
+                    dropdown.blockSignals(was_blocked)
+
+        # Show the renamed entry even if its old name matched a search
+        self.asset_search.clear()
+        self.asset_tree.reveal_asset(asset_id)
+
+    def project_asset_duplicate(self, asset_id):
+        """
+        Duplicate a saved asset definition with a new UUID.
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            return
+
+        asset = project.get_asset(asset_id)
+
+        if not isinstance(asset, dict) or asset["type"] not in ("palette", "sprite"):
+            return
+
+        # Suggest an unused name while still allowing duplicate names
+        existing_names = {entry["name"]
+            for entry in project.get_assets(asset["type"]).values()}
+
+        base_name = f'{asset["name"]} - Copy'
+        suggested_name = base_name
+        suffix = 2
+
+        while suggested_name in existing_names:
+            suggested_name = f"{base_name} {suffix}"
+            suffix += 1
+
+        name, ok = QtW.QInputDialog.getText(self, "Duplicate Asset",
+            "New name:\n\nThe copy will use the same files as the original.", text=suggested_name)
+
+        if not ok:
+            return
+
+        name = name.strip()
+
+        if not name:
+            QtW.QMessageBox.warning(self, "Invalid Name", "Please enter a nonblank name.")
+            return
+
+        try:
+            # Copy the saved configuration and give it a separate identity
+            config = deepcopy(asset)
+            config["id"] = project.new_asset_id()
+            config["name"] = name
+
+            proposed = project.snapshot()
+            project.set_asset(proposed, config, beside_id=asset_id)
+            project.save(proposed)
+
+        except (OSError, TypeError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Duplicate Error", f"Could not duplicate asset:\n{e}")
+            return
+
+        # Reuse the relevant editor's dropdown population function
+        if asset["type"] == "palette":
+            editor = self.palette_editor
+            dropdown = editor.pal_dropdown
+            populate = editor.proj_populate_pal_list
+
+        else:
+            editor = self.sprite_editor
+            dropdown = editor.spr_dropdown
+            populate = editor.proj_populate_sprite_list
+
+        # Keep the active editor selection while adding the new entry
+        selected_id = dropdown.currentData()
+        was_blocked = dropdown.blockSignals(True)
+
+        try:
+            populate(project.get_assets(asset["type"]))
+
+            index = dropdown.findData(selected_id) if selected_id is not None else -1
+
+            dropdown.setCurrentIndex(index)
+            editor.current_dropdown_index = index
+
+        finally:
+            dropdown.blockSignals(was_blocked)
+
+        self.asset_search.clear()
+        self.asset_tree.reveal_asset(config["id"])
+
+    def project_asset_remove(self, asset_id):
+        """
+        Remove an entry and its children from the project
+        """
+        project = self.project
+
+        if not project.is_loaded:
+            return
+
+        asset = project.get_asset(asset_id)
+
+        if not isinstance(asset, dict):
+            return
+
+        # Include every descendant when removing a folder
+        removed_ids = set()
+
+        def collect_ids(entry):
+            removed_ids.add(entry["id"])
+
+            if entry["type"] == "folder":
+                for child in entry["children"]:
+                    collect_ids(child)
+
+        collect_ids(asset)
+
+        pal_editor = self.palette_editor
+        spr_editor = self.sprite_editor
+
+        message = f"Remove '{asset['name']}' from the project?"
+
+        if asset["type"] == "folder" and len(removed_ids) > 1:
+            message += (
+                f"\n\nThis will also remove all {len(removed_ids) - 1} "
+                "entries inside this folder."
+            )
+
+        if (
+            pal_editor.active_palette_id in removed_ids
+            or spr_editor.active_sprite_id in removed_ids
+        ):
+            message += "\n\nUnsaved changes in affected editors will be discarded."
+
+        message += "\n\nFiles on disk will remain unchanged."
+
+        answer = QtW.QMessageBox.question(self, "Remove", message,
+            QtW.QMessageBox.StandardButton.Yes | QtW.QMessageBox.StandardButton.No,
+            QtW.QMessageBox.StandardButton.No)
+
+        if answer != QtW.QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            proposed = project.snapshot()
+            project.remove_asset(proposed, asset_id)
+            project.save(proposed)
+
+        except (OSError, TypeError, ValueError) as e:
+            QtW.QMessageBox.warning(self, "Remove Error", f"Could not remove entry:\n{e}")
+            return
+
+        # Clear only editors whose active UUID was removed
+        if pal_editor.active_palette_id in removed_ids:
+            pal_editor.palette_clear_data()
+            # Consider separating these lines from the above?
+            #pal_editor.active_palette_id = None
+            #pal_editor.active_palette_path = None
+            #pal_editor.current_dropdown_index = -1
+
+        if spr_editor.active_sprite_id in removed_ids:
+            spr_editor.sprite_clear_data()
+            # The above function doesn't always need to do this
+            spr_editor.active_sprite_id = None
+            spr_editor.current_dropdown_index = -1
+
+        # Rebuild both dropdowns while preserving surviving selections
+        for editor, dropdown, populate, asset_type in (
+            (
+                pal_editor, pal_editor.pal_dropdown,
+                pal_editor.proj_populate_pal_list, "palette"
+            ),
+            (
+                spr_editor, spr_editor.spr_dropdown,
+                spr_editor.proj_populate_sprite_list, "sprite"
+            ),
+        ):
+            selected_id = dropdown.currentData()
+            was_blocked = dropdown.blockSignals(True)
+
+            try:
+                populate(project.get_assets(asset_type))
+
+                index = dropdown.findData(selected_id) if selected_id is not None else -1
+
+                dropdown.setCurrentIndex(index)
+                editor.current_dropdown_index = index
+
+            finally:
+                dropdown.blockSignals(was_blocked)
 
     def project_asset_filter(self, text):
         """

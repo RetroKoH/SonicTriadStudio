@@ -678,13 +678,8 @@ class PaletteEditor(QtW.QWidget):
             if self.project.is_loaded else self.project_palettes
         )
 
-        # Discard the removed palette
-        self.active_palette_id = None
-        self.active_palette_path = None
-        self.current_dropdown_index = -1
-        self.palette_set_colors([QCOL_BLACK for _ in range(64)])
-        self.record_clean_palette()
-        self.palette_refresh_highlighting()
+        # Clear removed palette's data
+        self.palette_clear_data()
 
         # Refresh the dropdown and load the first remaining palette, if any
         self.proj_populate_pal_list(remaining_palettes)
@@ -937,14 +932,9 @@ class PaletteEditor(QtW.QWidget):
         """
         Reset palette data and read the active project's palette list.
         """
-        # Discard the previous project's document association
-        self.active_palette_id = None
-        self.active_palette_path = None
-        self.current_dropdown_index = -1
-
-        # Clear data before selecting a palette
-        self.palette_set_colors([QCOL_BLACK for _ in range(64)])
-        self.record_clean_palette()
+        # Discard the previous project's document association and
+        # clear data before selecting a palette
+        self.palette_clear_data()
 
         # The existing population method selects the first palette, if any
         self.proj_populate_pal_list(self.project.get_assets("palette"))
@@ -1199,6 +1189,19 @@ class PaletteEditor(QtW.QWidget):
                 border-radius: 6px;
             }}
         """)
+
+    def palette_clear_data(self):
+        """
+        Discard the active palette and its project association.
+        """
+        # Discard document association
+        self.active_palette_id = None
+        self.active_palette_path = None
+        self.current_dropdown_index = -1
+
+        # Clear palette data
+        self.palette_set_colors([QCOL_BLACK for _ in range(64)])
+        self.record_clean_palette()
 
 
     # --------------------------------------------------
