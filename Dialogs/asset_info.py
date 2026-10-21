@@ -1,6 +1,9 @@
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 
+from constants import BUTTON_OK, BUTTON_CANCEL, FILTER_PAL
+
+
 class AssetInfo(QtW.QDialog):
     def __init__(self, name, asset_type, details, apply_changes,
                  project, parent=None, palette_path=None):
@@ -53,8 +56,7 @@ class AssetInfo(QtW.QDialog):
 
         layout.addStretch()
 
-        buttons = QtW.QDialogButtonBox(QtW.QDialogButtonBox.StandardButton.Ok
-            | QtW.QDialogButtonBox.StandardButton.Cancel)
+        buttons = QtW.QDialogButtonBox(BUTTON_OK | BUTTON_CANCEL)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -69,11 +71,8 @@ class AssetInfo(QtW.QDialog):
         start_path = str(current_path or self.project.root_dir or "")
 
         # DontConfirmOverwrite prevents the unnecessary overwrite prompt
-        # (To-Do: Add that dialog option to the other save dialogs)
-        file_path, _ = QtW.QFileDialog.getSaveFileName(self,
-            "Palette Save Path", start_path,
-            "Palette Files (*.bin *.pal);;All Files (*)",
-            options=QtW.QFileDialog.Option.DontConfirmOverwrite)
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Palette Save Path",
+            start_path, FILTER_PAL, options=QtW.QFileDialog.Option.DontConfirmOverwrite)
 
         # Browsing only changes the field until Ok is clicked
         if file_path:

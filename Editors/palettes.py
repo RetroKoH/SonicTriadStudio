@@ -5,14 +5,11 @@ Supports anywhere from 1 to 256 colors. This seems superfluous, since the Mega D
 CRAM only holds 64 colors at once, but this design choice allows the user to freely work
 on larger color groups such as cycle palettes and menu palette arrays.
 """
-
-from pathlib import Path
-
 import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import pyqtSignal, Qt, QEvent, QObject, QSize, QTimer
 from PyQt6.QtGui import QColor
 
-from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALEDIT_MAXCOLORS, QCOL_BLACK
+from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALEDIT_MAXCOLORS, QCOL_BLACK, FILTER_PAL
 from AssetIO.palettes import decode_palette, encode_palette
 from Dialogs.palettes import (
     ColorBlendDialog,
@@ -486,9 +483,9 @@ class PaletteEditor(QtW.QWidget):
         project_dir = self.project.root_dir
         start_dir = str(project_dir) if project_dir else ""
 
-        # Save dialog for new palette file
+        # Save dialog for new palette file (No overwrite prompt)
         file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Create Palette File",
-            start_dir, "Palette Files (*.bin *.pal);;All Files (*)")
+            start_dir, FILTER_PAL, options=QtW.QFileDialog.Option.DontConfirmOverwrite)
 
         # If no filepath, stop here
         if not file_path:
@@ -535,8 +532,7 @@ class PaletteEditor(QtW.QWidget):
         start_dir = str(project_dir) if project_dir else ""
 
         # Load dialog for palette file
-        file_path, _ = QtW.QFileDialog.getOpenFileName(self, "Load Palette",
-            start_dir, "Palette Files (*.bin *.pal);;All Files (*)")
+        file_path, _ = QtW.QFileDialog.getOpenFileName(self, "Load Palette", start_dir, FILTER_PAL)
 
         # If no filepath, stop here
         if not file_path:
@@ -601,7 +597,7 @@ class PaletteEditor(QtW.QWidget):
 
         # Save dialog for new palette file
         file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Save Palette As",
-            start_dir,"Palette Files (*.bin *.pal);;All Files (*)")
+            start_dir, FILTER_PAL)
 
         # If no filepath, stop here
         if not file_path:

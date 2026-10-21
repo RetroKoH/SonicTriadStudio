@@ -2,7 +2,7 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPainter, QPen
 
-from constants import MDCOLOR_VALUES, QCOL_BLACK
+from constants import MDCOLOR_VALUES, QCOL_BLACK, BUTTON_OK, BUTTON_CANCEL
 from UI.themes import THEMES
 
 def snap_to_md_color(value):
@@ -162,9 +162,9 @@ class ColorLibrary(QtW.QDialog):
         content_layout.addLayout(details_layout)
         layout.addLayout(content_layout)
 
-        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
+        buttons = BUTTON_OK | BUTTON_CANCEL
         btn_box = QtW.QDialogButtonBox(buttons)
-        btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok).setText("Apply")
+        btn_box.button(BUTTON_OK).setText("Apply")
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)

@@ -11,7 +11,9 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QEvent, QObject, QPoint, QRect, QSize
 from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap, QIcon
 
-from constants import PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK
+from constants import PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK, FILTER_PAL, FILTER_ART, FILTER_MAP, FILTER_DPLC, \
+    VRAM_MAXTILES, TILE_SIZE, TILE_PIXELS
+
 from AssetIO.art import decode_art, encode_art
 from AssetIO.palettes import decode_palette, encode_palette
 from AssetIO.mappings import *
@@ -53,7 +55,7 @@ class SpriteEditor(QtW.QWidget):
 
         # 64 color palette (4 palette lines) for sprite rendering
         self.palette_boxes = []
-        self.palette_colors = [QCOL_BLACK for _i in range(64)]
+        self.palette_colors = [QCOL_BLACK for _i in range(PALETTE_MAXCOLORS)]
 
         # These are used in the palette file manager
         self.pal_rows = []  # Stores (path_input, line_combo) for palette loading
@@ -683,16 +685,16 @@ class SpriteEditor(QtW.QWidget):
         spr_palette_group = QtW.QGroupBox("Palette")
         spr_palette_layout = QtW.QVBoxLayout(spr_palette_group)
 
-        # 64-Color VDP Palette Grid (4 Lines x 16 Swatches)
+        # 64-Color VDP Palette Grid (4 Lines x 16 Colors)
         pal_grid_container = QtW.QWidget()
         pal_grid_layout = QtW.QGridLayout(pal_grid_container)
         pal_grid_layout.setSpacing(0)
         pal_grid_layout.setContentsMargins(0, 0, 0, 0)
         pal_grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        for _i in range(64):
-            row = _i // 16
-            col = _i % 16
+        for _i in range(PALETTE_MAXCOLORS):
+            row = _i // PALLINE_COLORS
+            col = _i % PALLINE_COLORS
             box = MiniColorBox(_i)
             box.clicked.connect(lambda _idx = _i: self.palette_open_color_library(_idx))
             pal_grid_layout.addWidget(box, row, col)
@@ -1680,7 +1682,7 @@ class SpriteEditor(QtW.QWidget):
 
         # Clear palette to black and invalidate file association
         self.palette_buffer_layout = None
-        self.palette_colors = [QCOL_BLACK for _i in range(64)]
+        self.palette_colors = [QCOL_BLACK for _i in range(PALETTE_MAXCOLORS)]
         for box in self.palette_boxes:
             box.set_color(QCOL_BLACK)
 
@@ -1797,8 +1799,8 @@ class SpriteEditor(QtW.QWidget):
             piece_rect = QRect(
                 (center_x + piece["x"]) * zoom,
                 (center_y + piece["y"]) * zoom,
-                piece["width"] * 8 * zoom,
-                piece["height"] * 8 * zoom,
+                piece["width"] * TILE_SIZE * zoom,
+                piece["height"] * TILE_SIZE * zoom,
             )
 
             if selection_rect.intersects(piece_rect):
@@ -1837,8 +1839,8 @@ class SpriteEditor(QtW.QWidget):
 
             left = piece["x"]
             top = piece["y"]
-            width = piece["width"] * 8
-            height = piece["height"] * 8
+            width = piece["width"] * TILE_SIZE
+            height = piece["height"] * TILE_SIZE
 
             if left <= x < left + width and top <= y < top + height:
                 return index
@@ -2953,8 +2955,8 @@ class SpriteEditor(QtW.QWidget):
                     piece_rect = QRect(
                         center_x + piece["x"],
                         center_y + piece["y"],
-                        piece["width"] * 8,
-                        piece["height"] * 8,
+                        piece["width"] * TILE_SIZE,
+                        piece["height"] * TILE_SIZE,
                     )
                     bounds = bounds.united(piece_rect)
 
@@ -3071,17 +3073,9 @@ class SpriteEditor(QtW.QWidget):
         project_dir = self.project.root_dir
         start_dir = str(project_dir) if project_dir else ""
 
-        # Filetype filter (To-Do: Move this to a global file and have each load instance pick and choose)
-        art_file_filter = (
-            "Uncompressed Art (*.bin *.unc);;"
-            "Nemesis Art (*.nem *.unc);;"
-            "Kosinski Art (*.kos *.unc);;"
-            "Moduled Kosinski Art (*.kosm *.unc);;"
-            "All Files (*)"
-        )
-
-        # Open dialog for new art file
-        file_path, _ = QtW.QFileDialog.getOpenFileName(self, "Add Art File", start_dir, art_file_filter)
+        # Save dialog for new art file (No overwrite prompt)
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Add Art File",
+            start_dir, FILTER_ART, options=QtW.QFileDialog.Option.DontConfirmOverwrite)
 
         # If successful, create a new row under the art tab
         if file_path:
@@ -3308,12 +3302,12 @@ class SpriteEditor(QtW.QWidget):
         comp_combo.setCurrentText(compression_by_extension.get(extension, "Uncompressed"))
 
         artloc_spin = QtW.QSpinBox()
-        artloc_spin.setRange(0, 2047)  # Cap at 2048 tiles (I'll worry about specifics later)
+        artloc_spin.setRange(0, VRAM_MAXTILES-1)  # Cap at 2048 tiles (I'll worry about specifics later)
         artloc_spin.setDisplayIntegerBase(16)  # Display in hex
         artloc_spin.setPrefix("$")
 
         count_spin = QtW.QSpinBox()
-        count_spin.setRange(0, 2048)  # Cap at 2048 tiles (Max possible in VRAM)
+        count_spin.setRange(0, VRAM_MAXTILES)  # Cap at 2048 tiles (Max possible in VRAM)
         count_spin.setSpecialValueText("All")
         count_spin.setToolTip("Number of source tiles to load into VRAM.\n"
             "0 to load all tiles that fit.")
@@ -3436,7 +3430,7 @@ class SpriteEditor(QtW.QWidget):
             # Copy from source to VRAM
             start = offset_spin.value()
             requested_count = count_spin.value() or len(art_tiles) # If count == 0, load all tiles
-            preview_count = min(requested_count, len(art_tiles), 2048 - start)
+            preview_count = min(requested_count, len(art_tiles), VRAM_MAXTILES - start)
             for source_index in range(preview_count):
                 self.static_vram_tiles[start + source_index] = art_tiles[source_index].copy()
 
@@ -3643,7 +3637,7 @@ class SpriteEditor(QtW.QWidget):
         # Before, a loop ran for each loaded entry. Now, this is only performed for a selected entry
         art_start = offset_spin.value()    # VRAM offset tiles are loaded into
         # Number of visible tiles loaded into VRAM
-        visible = min(count_spin.value() or len(tiles), len(tiles), 2048 - art_start)
+        visible = min(count_spin.value() or len(tiles), len(tiles), VRAM_MAXTILES - art_start)
         art_end = art_start + visible # end of the art file
 
         base_tile = self.vram_spinbox.value()
@@ -3800,7 +3794,7 @@ class SpriteEditor(QtW.QWidget):
 
             # If count == 0, use all tiles. If not, use specified tile count
             # min() caps it to the number of tiles actually available
-            visible = min(count or len(tiles), len(tiles), 2048 - offset)
+            visible = min(count or len(tiles), len(tiles), VRAM_MAXTILES - offset)
 
             # Create the usage record for this art entry
             usage.append(
@@ -3879,13 +3873,13 @@ class SpriteEditor(QtW.QWidget):
         """
         offset, visible = usage["offset"], usage["visible"]
         new_visible = len(order)
-        if offset + new_visible > 2048:
+        if offset + new_visible > VRAM_MAXTILES:
             raise ValueError("The optimized art would exceed VRAM tile 2047. "
                 "Lower this buffer's VRAM start or remove unused tiles before optimizing.")
 
         art_end = offset + visible
         tiles = [usage["tiles"][index - offset] if offset <= index < art_end
-            else [0] * 64 for index in order]
+            else [0] * TILE_PIXELS for index in order]
         if keep_unused:
             tiles.extend(usage["tiles"][visible:])
 
@@ -3951,7 +3945,7 @@ class SpriteEditor(QtW.QWidget):
             start = data["offset"] + visible
             end = data["offset"] + new_visible
 
-            if end > 2048:
+            if end > VRAM_MAXTILES:
                 raise ValueError(f"Art entry {row_index + 1} has insufficient VRAM "
                     "space for the cloned tiles. Free space before cloning.")
 
@@ -4014,9 +4008,9 @@ class SpriteEditor(QtW.QWidget):
         project_dir = self.project.root_dir
         start_dir = str(project_dir) if project_dir else ""
 
-        # Save dialog for new mapping file, WITHOUT creating the file
+        # Save dialog for new mapping file (No overwrite prompt)
         file_path, _ = QtW.QFileDialog.getSaveFileName(self, "New Mapping File",
-            start_dir, "Mapping Files (*.asm *.bin);;All Files (*)")
+            start_dir, FILTER_MAP, options=QtW.QFileDialog.Option.DontConfirmOverwrite)
 
         if not file_path:
             return
@@ -4309,10 +4303,9 @@ class SpriteEditor(QtW.QWidget):
         project_dir = self.project.root_dir
         start_dir = str(project_dir) if project_dir else ""
 
-        # Select an existing source or a new save destination without writing it
+        # Save dialog for new DPLC file (No overwrite prompt)
         file_path, _ = QtW.QFileDialog.getSaveFileName(self, "Select DPLC File",
-            start_dir, "DPLC Files (*.asm *.bin);;All Files (*)",
-            options=QtW.QFileDialog.Option.DontConfirmOverwrite)
+            start_dir, FILTER_DPLC, options=QtW.QFileDialog.Option.DontConfirmOverwrite)
 
         # If successful, store DPLC filepath
         if file_path:
@@ -4565,7 +4558,7 @@ class SpriteEditor(QtW.QWidget):
                     break
 
                 # Load only the tiles available in the source and destination
-                available_count = min(cue['count'], len(source_tiles) - source_start, 2048 - destination)
+                available_count = min(cue['count'], len(source_tiles) - source_start, VRAM_MAXTILES - destination)
 
                 for source_index in range(source_start, source_start + available_count):
                     # Copy tiles from buffer 1 to VRAM
@@ -4607,9 +4600,9 @@ class SpriteEditor(QtW.QWidget):
         project_dir = self.project.root_dir
         start_dir = str(project_dir) if project_dir else ""
 
-        # # Save dialog for new palette file, WITHOUT creating the file
-        file_path, _ = QtW.QFileDialog.getSaveFileName(self,
-            "New Palette File", start_dir, "Palette Files (*.pal *.bin);;All Files (*)")
+        # Save dialog for new palette file (No overwrite prompt)
+        file_path, _ = QtW.QFileDialog.getSaveFileName(self, "New Palette File",
+            start_dir, FILTER_PAL, options=QtW.QFileDialog.Option.DontConfirmOverwrite)
 
         # If successful, create a new row under the palette tab
         if file_path:
@@ -5046,7 +5039,7 @@ class SpriteEditor(QtW.QWidget):
         # 0 - self.vram_tiles (default)
         if option == 0:
             tiles = self.vram_tiles
-            tile_count = 2048
+            tile_count = VRAM_MAXTILES
 
         # 1-3 - self.art_buffer_paths[_i - 1] - load specified art buffer
         elif 1 <= option <= len(self.art_rows):
@@ -5125,7 +5118,7 @@ class SpriteEditor(QtW.QWidget):
 
                 # Unselected pieces with the mouse over them are transparent
                 if hovered:
-                    painter.fillRect(x, y, piece["width"] * 8, piece["height"] * 8,
+                    painter.fillRect(x, y, piece["width"] * TILE_SIZE, piece["height"] * TILE_SIZE,
                         QColor(255, 255, 0, 18))
                     painter.setOpacity(0.45)
 
@@ -5151,7 +5144,7 @@ class SpriteEditor(QtW.QWidget):
                 piece = frame_data[index]
 
                 painter.drawRect(center_x + piece["x"], center_y + piece["y"],
-                    piece["width"] * 8 - 1, piece["height"] * 8 - 1)
+                    piece["width"] * TILE_SIZE - 1, piece["height"] * TILE_SIZE - 1)
 
             painter.end()
 

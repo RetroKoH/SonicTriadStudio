@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter, QPen
 
 from UI.md_color import snap_to_md_color, ColorLibrary
 
-from constants import *
+from constants import MDCOLOR_VALUES, PALEDIT_MAXCOLORS, QCOL_WHITE, BUTTON_OK, BUTTON_CANCEL
 
 """ The following classes are subtypes for the AdvancedEditDialog class.
     They contain their own functions that edit facets of the main editor.
@@ -91,10 +91,10 @@ class AdvancedEditDialog(QtW.QDialog):
         # -----------------------------
         # BOTTOM PANEL: Action Buttons
         # -----------------------------
-        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
+        buttons = BUTTON_OK | BUTTON_CANCEL
         btn_box = QtW.QDialogButtonBox(buttons)
 
-        btn_apply = btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok)
+        btn_apply = btn_box.button(BUTTON_OK)
         btn_apply.setText("Apply")
 
         btn_apply.clicked.connect(self.on_apply)
@@ -209,7 +209,7 @@ class ColorBlendDialog(AdvancedEditDialog):
         self.highlight_preview.setFixedSize(32, 24)
 
         self.highlight_picker = QtW.QPushButton("Select Color")
-        self.highlight_color = QColor(255, 255, 255)
+        self.highlight_color = QCOL_WHITE
         self.highlight_picker.setAutoDefault(False)
         self.highlight_preview.setStyleSheet(f"background-color: {self.highlight_color.name()}; border: 1px solid #444;")
         self.highlight_picker.clicked.connect(lambda: self.choose_color(True))
@@ -509,7 +509,7 @@ class GradientBuilderDialog(QtW.QDialog):
         # Initial source color is the currently active color
         active_color = self.editor.colors[self.editor.active_index]
         self.color_src = QColor(active_color)
-        self.color_dst = QColor(255, 255, 255)  # Default dest is white
+        self.color_dst = QCOL_WHITE
         self.preview_boxes = []
 
         # Setup this window (Unlike the others, we don't need to live update)
@@ -588,10 +588,10 @@ class GradientBuilderDialog(QtW.QDialog):
         # -----------------------------
         # BOTTOM PANEL: Action Buttons
         # -----------------------------
-        buttons = QtW.QDialogButtonBox.StandardButton.Ok | QtW.QDialogButtonBox.StandardButton.Cancel
+        buttons = BUTTON_OK | BUTTON_CANCEL
         btn_box = QtW.QDialogButtonBox(buttons)
 
-        btn_apply = btn_box.button(QtW.QDialogButtonBox.StandardButton.Ok)
+        btn_apply = btn_box.button(BUTTON_OK)
         btn_apply.setText("Apply")
 
         btn_apply.clicked.connect(self.on_apply)
