@@ -3,7 +3,8 @@ from PyQt6 import QtCore
 from PyQt6.QtCore import pyqtSignal, Qt, QEvent, QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPixmap, QPainter, QPen
 
-from UI.md_color import snap_to_md_color, ColorLibrary
+from AssetIO.palettes import snap_to_md_color
+from UI.md_color import ColorLibrary
 
 from constants import MDCOLOR_VALUES, PALEDIT_MAXCOLORS, QCOL_WHITE, BUTTON_OK, BUTTON_CANCEL
 

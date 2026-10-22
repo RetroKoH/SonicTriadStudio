@@ -4,11 +4,7 @@ from PyQt6.QtGui import QColor, QPainter, QPen
 
 from constants import MDCOLOR_VALUES, QCOL_BLACK, BUTTON_OK, BUTTON_CANCEL
 from UI.themes import THEMES
-
-def snap_to_md_color(value):
-    # Snaps an RGB color value to its corresponding index (0-7)
-    value = min(MDCOLOR_VALUES, key=lambda x: abs(x - value))
-    return MDCOLOR_VALUES.index(value)
+from AssetIO.palettes import snap_to_md_color
 
 """ Color Library
     Specialized color picker that only allows for validated colors.

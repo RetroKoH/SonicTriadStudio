@@ -1,8 +1,12 @@
 from PyQt6.QtGui import QColor
 
 from constants import MDCOLOR_VALUES
-from UI.md_color import snap_to_md_color
 
+
+def snap_to_md_color(value):
+    # Snaps an RGB color value to its corresponding index (0-7)
+    value = min(MDCOLOR_VALUES, key=lambda x: abs(x - value))
+    return MDCOLOR_VALUES.index(value)
 
 def decode_palette(data):
     """
@@ -28,7 +32,6 @@ def decode_palette(data):
         ))
 
     return colors
-
 
 def encode_palette(colors):
     """

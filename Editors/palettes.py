@@ -10,7 +10,7 @@ from PyQt6.QtCore import pyqtSignal, Qt, QEvent, QObject, QSize, QTimer
 from PyQt6.QtGui import QColor
 
 from constants import MDCOLOR_VALUES, PALLINE_COLORS, PALEDIT_MAXCOLORS, QCOL_BLACK, FILTER_PAL
-from AssetIO.palettes import decode_palette, encode_palette
+from AssetIO.palettes import snap_to_md_color, decode_palette, encode_palette
 from Dialogs.palettes import (
     ColorBlendDialog,
     GreyscaleDialog,
@@ -19,7 +19,7 @@ from Dialogs.palettes import (
 )
 from UI.collapse_panel import CollapsiblePanel
 from UI.file_toolbar import create_file_toolbar
-from UI.md_color import snap_to_md_color, ColorLibrary
+from UI.md_color import ColorLibrary
 from UI.widgets import (
     create_combobox,
     create_label,
