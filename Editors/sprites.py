@@ -11,12 +11,22 @@ import PyQt6.QtWidgets as QtW
 from PyQt6.QtCore import Qt, QEvent, QObject, QPoint, QRect, QSize
 from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap, QIcon
 
-from constants import PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK, FILTER_PAL, FILTER_ART, FILTER_MAP, FILTER_DPLC, \
-    VRAM_MAXTILES, TILE_SIZE, TILE_PIXELS
-
-from AssetIO.art import decode_art, encode_art
-from AssetIO.palettes import decode_palette, encode_palette
+from constants import (
+    PALLINE_COLORS, PALETTE_MAXCOLORS, QCOL_BLACK, FILTER_PAL, FILTER_ART, FILTER_MAP, FILTER_DPLC, \
+    VRAM_MAXTILES, TILE_SIZE, TILE_PIXELS)
+from AssetIO.art import encode_art
+from AssetIO.palettes import encode_palette
 from AssetIO.mappings import *
+from AssetIO.sprites import (
+    ArtBuffer,
+    build_static_vram,
+    load_art_buffers,
+    load_dplc_buffer,
+    load_mapping_buffer,
+    load_palette_buffers,
+    palette_file_layout,
+    prepare_frame_vram,
+)
 from Rendering.tiles import render_tile_grid
 from Rendering.sprites import SpriteRenderer
 from UI.collapse_panel import CollapsiblePanel
@@ -3159,52 +3169,29 @@ class SpriteEditor(QtW.QWidget):
             None if preparation fails.
             Blank entries receive empty buffers when applied.
         """
-        load_jobs = []
-        loaded_paths = {}
-        loaded_compressions = {}
-        seen_paths = set()
+        # Create an entry for each art file added
+        entries = [
+            {"path": path.text().strip(), "compression": compression.currentText(),
+             "offset": offset.value(), "count": count.value()}
+            for path, compression, offset, count, _ in self.art_rows
+        ]
 
-        # Loop for each filepath added
-        for row_index, (path_input, comp_combo, _, _, art_tiles) in enumerate(self.art_rows):
-            file_path_str = path_input.text().strip()
+        try:
+            buffers = load_art_buffers(entries, self.project.resolve_asset_path,
+                dplcs_enabled=self.dplc_cb.isChecked())
 
-            # Clear for unassigned entries
-            if not file_path_str:
-                load_jobs.append((art_tiles, []))
-                continue
+        except Exception as e:
+            QtW.QMessageBox.warning(self, "Art Load Error", str(e))
+            return None
 
-            path = Path(file_path_str)
+        # Adapt widget-free results to the file manager's existing associations
+        load_jobs, loaded_paths, loaded_compressions = [], {}, {}
 
-            try:
-                path = self.project.resolve_asset_path(path)
-
-                # Reject duplicate file assignments
-                if path in seen_paths:
-                    raise ValueError("Art file is listed more than once.")
-
-                seen_paths.add(path)
-
-                with open(path, "rb") as f:
-                    raw_data = f.read()
-
-                # DPLCs read directly from uncompressed source art in buffer 1
-                compression = comp_combo.currentText()
-                if row_index == 0 and self.dplc_cb.isChecked() and compression != "Uncompressed":
-                    raise ValueError("DPLCs require uncompressed art in buffer 1. "
-                        "Choose Uncompressed and load an uncompressed art file.")
-
-                # Unpack tiles and load into buffer storage
-                loaded_tiles = decode_art(raw_data, compression)
-
-                # Queue buffer to be loaded
-                load_jobs.append((art_tiles, loaded_tiles))
-                loaded_paths[path_input] = path
-                loaded_compressions[path_input] = compression
-
-            except Exception as e:
-                QtW.QMessageBox.warning(self, "Art Load Error",
-                    f"Could not load art file {path.name}:\n{str(e)}")
-                return None
+        for (path_input, _, _, _, art_tiles), buffer in zip(self.art_rows, buffers):
+            load_jobs.append((art_tiles, buffer.tiles))
+            if buffer.path is not None:
+                loaded_paths[path_input] = buffer.path
+                loaded_compressions[path_input] = buffer.compression
 
         return load_jobs, loaded_paths, loaded_compressions
 
@@ -3302,7 +3289,7 @@ class SpriteEditor(QtW.QWidget):
         comp_combo.setCurrentText(compression_by_extension.get(extension, "Uncompressed"))
 
         artloc_spin = QtW.QSpinBox()
-        artloc_spin.setRange(0, VRAM_MAXTILES-1)  # Cap at 2048 tiles (I'll worry about specifics later)
+        artloc_spin.setRange(0, VRAM_MAXTILES-1)  # Cap at 2048 tiles
         artloc_spin.setDisplayIntegerBase(16)  # Display in hex
         artloc_spin.setPrefix("$")
 
@@ -3414,25 +3401,19 @@ class SpriteEditor(QtW.QWidget):
         Buffer 1 is dynamic if DPLCs are used, static otherwise.
         Buffers 2 and 3 are always static.
         """
-        # Clear static VRAM
-        self.static_vram_tiles = {}
-
-        for row_index, (_, _, offset_spin, count_spin, art_tiles) in enumerate(self.art_rows):
+        buffers = []
+        for row_index, (path_input, compression, offset_spin, count_spin, art_tiles) in enumerate(self.art_rows):
             # Buffer 1 is dynamic if DPLCs are enabled
             dynamic_source = self.dplc_cb.isChecked() and row_index == 0
 
             offset_spin.setEnabled(not dynamic_source)
             count_spin.setEnabled(not dynamic_source)
 
-            if dynamic_source:
-                continue  # The complete first buffer is source art, not a static upload
+            buffers.append(ArtBuffer(self.art_buffer_paths.get(path_input),
+                compression.currentText(), offset_spin.value(), count_spin.value(), art_tiles))
 
-            # Copy from source to VRAM
-            start = offset_spin.value()
-            requested_count = count_spin.value() or len(art_tiles) # If count == 0, load all tiles
-            preview_count = min(requested_count, len(art_tiles), VRAM_MAXTILES - start)
-            for source_index in range(preview_count):
-                self.static_vram_tiles[start + source_index] = art_tiles[source_index].copy()
+        self.static_vram_tiles = build_static_vram(buffers,
+            dplcs_enabled=self.dplc_cb.isChecked())
 
         # Invalidate cached previews after rebuilding VRAM
         self.art_preview_revision += 1
@@ -4146,25 +4127,19 @@ class SpriteEditor(QtW.QWidget):
             self.map_path_input.text().strip()
             if self.map_path_input is not None else "")
 
-        # For unconfigured mappings, use an empty buffer
-        if not file_path_str:
-            return None, [], [], "", False
-
         path = Path(file_path_str)
 
         try:
-            # Resolve relative paths against the project directory
-            path = self.project.resolve_asset_path(path)
-
             # Prepare data without changing anything in the editor
-            loaded = load_mappings(path, self.map_dropdown.currentData())
+            loaded = load_mapping_buffer(file_path_str, self.map_dropdown.currentData(),
+                self.project.resolve_asset_path)
 
         except Exception as e:
             QtW.QMessageBox.warning(self, "Mapping Load Error",
                 f"Could not load mappings {path.name}:\n{e}")
             return None
 
-        return path, *loaded
+        return loaded
 
     def mapping_prepare_save(self):
         """
@@ -4374,34 +4349,20 @@ class SpriteEditor(QtW.QWidget):
             An empty DPLC buffer if no file is configured.
             None if preparation fails.
         """
-        # To-Do: Make this a global variable, or a constant... not sure which just yet
-        empty = (None, [], [], "", None)
-
-        # Stop now if DPLC's are not enabled
-        if not self.dplc_cb.isChecked():
-            return empty
-
         file_path_str = self.dplc_path_input.text().strip()
-
-        # For unconfigured mappings, use an empty buffer
-        if not file_path_str:
-            return empty
-
         path = Path(file_path_str)
 
         try:
-            # Resolve relative paths against the project directory
-            path = self.project.resolve_asset_path(path)
-
             # Prepare data without changing anything in the editor
-            loaded = load_dplcs(path, self.map_dropdown.currentData())
+            loaded = load_dplc_buffer(file_path_str, self.map_dropdown.currentData(),
+                self.project.resolve_asset_path, enabled=self.dplc_cb.isChecked())
 
         except Exception as e:
             QtW.QMessageBox.warning(self, "DPLC Load Error",
                 f"Could not load DPLCs from {path.name}:\n{e}")
             return None
 
-        return path, *loaded
+        return loaded
 
     def dplc_prepare_save(self):
         """
@@ -4500,26 +4461,29 @@ class SpriteEditor(QtW.QWidget):
 
     def dplc_get_frame_vram(self, frame_index):
         """
-        Return an independent (tiles, status) snapshot for one frame.
+        Cache shared frame preparation and guard stale file-manager settings.
+        If any validation fails, return static VRAM with a status update.
 
-        Buffer 1 supplies source indices starting at zero; its static offset
-        and count don't apply. Reject invalid frames before copying any of their dynamic tiles.
+        Static pixels are read-only; dynamic uploads are copied from buffer 1.
         """
         # Stop now if DPLC's are not enabled
         if not self.dplc_cb.isChecked():
             return self.static_vram_tiles, ""
 
+        # If this frame has already been prepared, return its cached result
         cached = self.dplc_vram_cache.get(frame_index)
         if cached is not None:
             return cached
 
-        tiles = self.static_vram_tiles.copy()
         status = ""
         source_tiles = []
+        source_compression = None
 
-        # Update DPLC status message
+        # DPLC load check
         if self.dplc_buffer_path is None:
             status = "Load a DPLC file to populate frame VRAM."
+
+        # Check that the format is current
         elif self.dplc_buffer_format != self.map_dropdown.currentData():
             status = "The format has changed. Reload mappings and DPLCs."
 
@@ -4527,51 +4491,33 @@ class SpriteEditor(QtW.QWidget):
             try:
                 # Resolve relative paths against the project directory
                 configured_path = self.project.resolve_asset_path(self.dplc_path_input.text().strip())
+
             except (OSError, ValueError):
                 configured_path = None
 
+            # Check that the DPLC path is current
             if configured_path != self.dplc_buffer_path:
                 status = "The DPLC path has changed. Load the configured DPLC file."
-            elif not 0 <= frame_index < len(self.dplc_frames):
-                status = f"No DPLC frame exists for mapping frame {frame_index}."
-            elif not self.art_rows or not self.art_rows[0][4]:
-                status = "Waiting for uncompressed art in buffer 1."
-            else:
+
+            elif self.art_rows:
+                # Gather buffer 1’s source tiles and compression
                 path_input, compression, _, _, source_tiles = self.art_rows[0]
-                if (compression.currentText() != "Uncompressed"
-                    or self.art_buffer_compressions.get(path_input) != "Uncompressed"):
-                    status = "DPLCs require buffer 1 to be loaded from uncompressed art."
+                source_compression = (
+                    self.art_buffer_compressions.get(path_input)
+                    if compression.currentText() == "Uncompressed" else compression.currentText()
+                )
 
-        if not status:
-            cues = self.dplc_frames[frame_index]
-            destination = self.vram_spinbox.value()
+        # Return static VRAM if a failure status was produced
+        if status:
+            result = (self.static_vram_tiles.copy(), status)
 
-            for cue in cues:
-                source_start = cue['tile']
+        else:
+            result = prepare_frame_vram(self.static_vram_tiles, source_tiles,
+                self.dplc_frames, frame_index, dplcs_enabled=True,
+                base_tile=self.vram_spinbox.value(), source_compression=source_compression)
 
-                # Stop if this entry starts AFTER the source buffer
-                if not source_start < len(source_tiles):
-                    status = (f"DPLC frame {frame_index} requests source tiles "
-                              f"starting at tile offset ${cue['tile']:X}, "
-                              f"which is AFTER the end of the source buffer. "
-                              "DPLC loading stopped prematurely.")
-                    break
-
-                # Load only the tiles available in the source and destination
-                available_count = min(cue['count'], len(source_tiles) - source_start, VRAM_MAXTILES - destination)
-
-                for source_index in range(source_start, source_start + available_count):
-                    # Copy tiles from buffer 1 to VRAM
-                    tiles[destination] = source_tiles[source_index].copy()
-                    destination += 1
-
-                # An incomplete entry ends loading for this frame
-                if available_count < cue['count']:
-                    break
-
-        result = (tiles, status)
+        # Cache and return the result
         self.dplc_vram_cache[frame_index] = result
-
         return result
 
     def dplc_refresh_vram(self):
@@ -4698,43 +4644,12 @@ class SpriteEditor(QtW.QWidget):
             None otherwise.
         """
         try:
-            layout = self.palette_get_file_layout()     # (path, line count)
-            loaded_colors = [QCOL_BLACK for _ in range(PALETTE_MAXCOLORS)] # Temp buffer of 64 colors
-            new_paths = self.palette_new_paths.copy()
-            current_index = 0   # Index to load the next color into
-
-            for path, num_lines in layout:
-                # Number of colors to load based on number of lines in the entry
-                num_colors = num_lines * PALLINE_COLORS
-
-                if path is not None:
-                    try:
-                        with open(path, "rb") as f:
-                            data = f.read(num_colors * 2)   # each color is 2 bytes
-
-                    except FileNotFoundError:
-                        # New, unsaved palettes remain black
-                        if path not in new_paths:
-                            raise
-
-                    else:
-                        # Reject files shorter than their configured line count
-                        if len(data) != num_colors * 2:
-                            raise ValueError(f"{path.name}: expected {num_colors * 2} bytes, but read {len(data)}.")
-
-                        loaded_colors[current_index:current_index + num_colors] = decode_palette(data)
-
-                        # For file association management
-                        new_paths.discard(path)
-
-                # Blank paths still reserve their palette lines
-                current_index += num_colors
+            return load_palette_buffers(self.palette_get_entries(),
+                self.project.resolve_asset_path, new_paths=self.palette_new_paths)
 
         except (OSError, ValueError) as e:
             QtW.QMessageBox.warning(self, "Palette Load Error", str(e))
             return None
-
-        return loaded_colors, layout, new_paths
 
     def palette_prepare_save(self):
         """
@@ -4954,37 +4869,12 @@ class SpriteEditor(QtW.QWidget):
             Tuple: (absolute Path or None, line count) for each entry.
             (Note: Blank paths reserve their configured palette lines.)
         """
-        layout = []
-        seen_paths = set()
-        total_lines = 0
+        return palette_file_layout(self.palette_get_entries(), self.project.resolve_asset_path)
 
-        # Validate line allocation
-        for path_input, line_combo in self.pal_rows:
-            num_lines = int(line_combo.currentText() or "1")
-            total_lines += num_lines
-
-            if not 1 <= num_lines <= 4 or total_lines > 4:
-                raise ValueError("Palette entries must fit within four lines.")
-
-            # Blank paths remain unassigned
-            path_text = path_input.text().strip()
-            path = None
-
-            if path_text:
-                # Resolve relative paths against the project root
-                path = self.project.resolve_asset_path(path_text)
-
-                # Prevents writing to the same palette file twice from separate entries
-                if path in seen_paths:
-                    raise ValueError(f"Palette file listed more than once: {path}")
-
-                seen_paths.add(path)
-
-            # Preserve row order and reserved lines
-            layout.append((path, num_lines))
-
-        # Includes blank entries as they reserve palette lines
-        return tuple(layout)
+    def palette_get_entries(self):
+        """Translate file-manager rows into widget-free palette configuration."""
+        return [{"path": path.text().strip(), "length": int(lines.currentText() or "1")}
+                for path, lines in self.pal_rows]
 
     # --------------------------------------------------
     # Rendering
