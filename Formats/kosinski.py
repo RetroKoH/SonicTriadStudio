@@ -77,6 +77,29 @@ class KosinskiDecomp(Decompress):
         self.set_input(data, position)
         return self.decompress()
 
+
+class KosinskiModDecomp(Decompress):
+    def __init__(self, data_input):
+        super().__init__(data_input)
+        self.kosinski = None
+
+    def decompress(self):
+        try:
+            self.output = []
+            self.kosinski = KosinskiDecomp(self.data_input)
+
+            size = self.read_word()
+            while size > 0:
+                self.write_bytes(self.kosinski.decompress_data(self.data_input, self.position))
+                self.position = self.kosinski.position + ((2 - self.kosinski.position) & 0xF)
+                size -= 0x1000
+            return self.output
+
+        except Exception as e:
+            print(e)
+            return None
+
+
 class KosinskiComp(Compress):
     """
     Compress a file in the Kosinski format.
@@ -86,16 +109,31 @@ class KosinskiComp(Compress):
     def compress(self):
         pass
 
+
+class KosinskiModComp(Compress):
+    pass
+
+
 # ========================
 # Callers
 # ========================
 # This defines what gets imported if using 'from Editors import *'
-__all__ = ["compress", "decompress"]
+__all__ = ["compress", "mod_compress", "decompress", "mod_decompress"]
 
 def compress(data, xor_mode=None):
-    comp = KosinskiComp(data)
+    return
+    #comp = KosinskiComp(data)
+    #return comp.compress()
+
+def mod_compress(data, xor_mode=None):
+    return
+    #comp = KosinskiModComp(data)
     #return comp.compress()
 
 def decompress(data):
     decomp = KosinskiDecomp(data)
+    return decomp.decompress()
+
+def mod_decompress(data):
+    decomp = KosinskiModDecomp(data)
     return decomp.decompress()

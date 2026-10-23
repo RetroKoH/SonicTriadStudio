@@ -14,6 +14,8 @@ def decode_art(data, compression="Uncompressed"):
         raw_data = nemesis.decompress(raw_data)
     elif compression == "Kosinski":
         raw_data = kosinski.decompress(raw_data)
+    elif compression == "Kosinski-M":
+        raw_data = kosinski.mod_decompress(raw_data)
     elif compression != "Uncompressed":
         raise ValueError(f"Unsupported art compression format: {compression}")
 
