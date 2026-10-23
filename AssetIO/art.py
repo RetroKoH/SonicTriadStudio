@@ -1,4 +1,4 @@
-from Formats import nemesis
+from Formats import nemesis, kosinski
 
 def decode_art(data, compression="Uncompressed"):
     """
@@ -12,6 +12,8 @@ def decode_art(data, compression="Uncompressed"):
 
     if compression == "Nemesis":
         raw_data = nemesis.decompress(raw_data)
+    elif compression == "Kosinski":
+        raw_data = kosinski.decompress(raw_data)
     elif compression != "Uncompressed":
         raise ValueError(f"Unsupported art compression format: {compression}")
 
@@ -49,5 +51,9 @@ def encode_art(tiles, compression="Uncompressed"):
 
     if compression == "Nemesis":
         art_data = nemesis.compress(art_data)
+    #elif compression == "Kosinski":
+    #    art_data = kosinski.compress(art_data)
+    elif compression != "Uncompressed":
+        raise ValueError(f"Unsupported art compression format: {compression}")
 
     return bytes(art_data)

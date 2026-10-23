@@ -4,6 +4,8 @@ from Formats.compress import Compress
 class NemesisDecomp(Decompress):
     """
     Decompress a Nemesis-encoded file.
+
+    Credit: Devon
     """
     def decompress(self):
         try:
