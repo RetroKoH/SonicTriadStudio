@@ -297,7 +297,40 @@ class KosinskiComp(Compress):
 
 
 class KosinskiModComp(Compress):
-    pass
+    """
+    ClownLZSS ModuledCompressionWrapper(), with 0x1000-byte modules.
+    """
+
+    MODULE_SIZE = 0x1000
+    MODULE_ALIGNMENT = 0x10
+    MAX_INPUT_SIZE = 0xFFFF
+
+    def compress(self):
+        """
+        Return compressed byte values; the size must fit the 16-bit header.
+        """
+        self.reset_output()
+        size = len(self.data_input)
+        if size > self.MAX_INPUT_SIZE:
+            raise ValueError("Moduled Kosinski supports at most 65535 input bytes.")
+
+        # ModuledCompressionWrapper<2, Endian::Big> header.
+        header = (size % self.MODULE_SIZE) | ((size // self.MODULE_SIZE) << 12)
+        self.write_word(header)
+
+        compressed_size = 0
+        for position in range(0, size, self.MODULE_SIZE):
+            # align after the previous module; no padding after the last.
+            padding = (-compressed_size) % self.MODULE_ALIGNMENT
+            self.write_bytes((0,) * padding)
+
+            # compress each module independently with Kosinski::Compress().
+            module = self.data_input[position:position + self.MODULE_SIZE]
+            compressed = KosinskiComp(module).compress()
+            self.write_bytes(compressed)
+            compressed_size = len(compressed)
+
+        return self.output
 
 
 # ========================
@@ -311,9 +344,8 @@ def compress(data):
     return comp.compress()
 
 def mod_compress(data):
-    return
-    #comp = KosinskiModComp(data)
-    #return comp.compress()
+    comp = KosinskiModComp(data)
+    return comp.compress()
 
 def decompress(data):
     decomp = KosinskiDecomp(data)
