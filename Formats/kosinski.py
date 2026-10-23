@@ -104,10 +104,196 @@ class KosinskiComp(Compress):
     """
     Compress a file in the Kosinski format.
 
-    Not ready yet.
+    Credit: Clownacy (ClownLZSS)
+    Reference: https://github.com/Clownacy/clownlzss
+    Graph: compressors/clownlzss.c; format/costs: compressors/kosinski.h.
+    Descriptor writer: bitfield.h. Costs exclude unused descriptor padding.
     """
+    # Per FindOptimalMatches()
+    MAX_SEARCH_DISTANCE = 0x2000
+    MAX_MATCH_LENGTH = 0x100
+    LITERAL_COST = 1 + 8
+
+    @staticmethod
+    def get_match_cost(distance, length):
+        """
+        ClownLZSS Kosinski::GetMatchCost()
+        """
+        if 2 <= length <= 5 and distance <= 0x100:
+            return 2 + 2 + 8
+        elif 3 <= length <= 9:
+            return 2 + 16
+        elif length >= 3:
+            return 2 + 16 + 8
+
+        # 0 means unencodable
+        return 0
+
+    def find_matches(self):
+        """
+        Return (position, length, distance) tuples.
+        [See: See clownlzss.c -> FindOptimalMatches()]
+        """
+        data = self.data_input
+        total_values = len(data)
+        get_match_cost = self.get_match_cost
+
+        # Initialize the string list nodes
+        # next[] and list heads; groups by two bytes instead of one
+        older_sources = [-1] * total_values
+        source_heads = {}
+        for position in range(total_values - 1):
+            key = (data[position] << 8) | data[position + 1]
+            older_sources[position] = source_heads.get(key, -1)
+            source_heads[key] = position
+
+        # These correspond to fields in Clownacy’s node_meta_array
+        node_costs = [total_values * self.LITERAL_COST + 1] * (total_values + 1)
+        node_costs[0] = 0
+        previous_nodes = [0] * (total_values + 1)  # previous_node_index
+        match_distances = [0] * (total_values + 1)
+
+        # No explicit zero-check needed. This loop will not start without values
+        # Advance through the data one step at a time
+        for position in range(total_values):
+            cost = node_costs[position]
+            limit = min(self.MAX_MATCH_LENGTH, total_values - position)
+            window_start = max(0, position - self.MAX_SEARCH_DISTANCE)
+            source = older_sources[position]
+            longest = 1
+            prefix = data[position:position + 2]
+
+            # This corresponds to Clownacy’s inner loop over match_string
+            while source >= window_start:
+                distance = position - source
+
+                if data.startswith(prefix, source):
+                    # Binary search replaces C's byte-by-byte j loop
+                    low = longest + 1
+                    high = limit
+
+                    while low < high:
+                        middle = (low + high + 1) // 2
+                        if data.startswith(data[position:position + middle], source):
+                            low = middle
+                        else:
+                            high = middle - 1
+
+                    length = low
+
+                    # Evaluate each j + 1 length through GetMatchCost()
+                    for count in range(longest + 1, length + 1):
+                        match_cost = get_match_cost(distance, count)
+                        if match_cost == 0:
+                            continue
+
+                        # Update the cheaper edge in node_meta_array[end]
+                        end = position + count
+                        new_cost = cost + match_cost
+                        if new_cost < node_costs[end]:
+                            node_costs[end] = new_cost
+                            previous_nodes[end] = position
+                            match_distances[end] = distance
+
+                    # Farther sources cannot improve covered lengths
+                    longest = length
+                    if longest == limit:
+                        break
+                    prefix = data[position:position + longest + 1]
+
+                # next[match_string]
+                source = older_sources[source]
+
+            # literal edge after match search; >= makes literals win ties
+            if node_costs[position + 1] >= cost + self.LITERAL_COST:
+                node_costs[position + 1] = cost + self.LITERAL_COST
+                previous_nodes[position + 1] = position
+                match_distances[position + 1] = 0
+
+        # reverse the chosen edges, then produce the matches array
+        matches = []
+        end = total_values
+
+        while end:
+            position = previous_nodes[end]
+            matches.append((position, end - position, match_distances[end]))
+            end = position
+
+        matches.reverse()
+        return matches
+
+    def begin_descriptor(self):
+        """
+        ClownLZSS DescriptorFieldWriter::Begin(): reserve two bytes.
+        """
+        self.descriptor_position = len(self.output)
+        self.descriptor_bit = 0
+        self.write_bytes((0, 0))
+
+    def write_descriptor_bit(self, value):
+        """
+        ClownLZSS WriterBase::Push(): write LSB-first descriptor bits.
+        """
+        position = self.descriptor_position + self.descriptor_bit // 8
+        self.output[position] |= value << (self.descriptor_bit % 8)
+        self.descriptor_bit += 1
+
+        # C: WriteWhen::AfterPush reserves the next descriptor here.
+        if self.descriptor_bit == 16:
+            self.begin_descriptor()
+
+    def write_match(self, distance, length):
+        """The three copy branches in ClownLZSS Kosinski::Compress()."""
+        offset = -distance
+
+        if 2 <= length <= 5 and distance <= 0x100:
+            # C: short copy (four descriptor bits, one payload byte).
+            self.write_descriptor_bit(0)
+            self.write_descriptor_bit(0)
+            self.write_descriptor_bit(((length - 2) >> 1) & 1)
+            self.write_descriptor_bit((length - 2) & 1)
+            self.write_byte(offset)
+        elif 3 <= length <= 9:
+            # C: normal copy (two descriptor bits, two payload bytes).
+            self.write_descriptor_bit(0)
+            self.write_descriptor_bit(1)
+            self.write_byte(offset)
+            self.write_byte(((offset >> 5) & 0xF8) | (length - 2))
+        else:
+            # C: extended copy (two descriptor bits, three payload bytes).
+            self.write_descriptor_bit(0)
+            self.write_descriptor_bit(1)
+            self.write_byte(offset)
+            self.write_byte((offset >> 5) & 0xF8)
+            self.write_byte(length - 1)
+
     def compress(self):
-        pass
+        """
+        Return compressed byte values; errors propagate to the caller.
+
+        Accept arbitrary byte lengths, including empty input. Input is never
+        modified, and repeated calls reset all output and descriptor state.
+        """
+        self.reset_output()
+
+        # Produce a series of LZSS compression matches
+        matches = self.find_matches()  # FindOptimalMatches().
+        self.begin_descriptor()  # DescriptorFieldWriter construction.
+
+        # Iterate over matches in Kosinski::Compress()
+        for position, length, distance in matches:
+            if distance == 0:
+                # CLOWNLZSS_MATCH_IS_LITERAL(match)
+                self.write_descriptor_bit(1)
+                self.write_byte(self.data_input[position])
+            else:
+                self.write_match(distance, length)
+
+        # End marker, including the same unused offset bytes
+        self.write_descriptor_bit(0)
+        self.write_descriptor_bit(1)
+        self.write_bytes((0x00, 0xF0, 0x00))
+        return self.output
 
 
 class KosinskiModComp(Compress):
@@ -120,12 +306,11 @@ class KosinskiModComp(Compress):
 # This defines what gets imported if using 'from Editors import *'
 __all__ = ["compress", "mod_compress", "decompress", "mod_decompress"]
 
-def compress(data, xor_mode=None):
-    return
-    #comp = KosinskiComp(data)
-    #return comp.compress()
+def compress(data):
+    comp = KosinskiComp(data)
+    return comp.compress()
 
-def mod_compress(data, xor_mode=None):
+def mod_compress(data):
     return
     #comp = KosinskiModComp(data)
     #return comp.compress()

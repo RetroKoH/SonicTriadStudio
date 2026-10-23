@@ -53,8 +53,8 @@ def encode_art(tiles, compression="Uncompressed"):
 
     if compression == "Nemesis":
         art_data = nemesis.compress(art_data)
-    #elif compression == "Kosinski":
-    #    art_data = kosinski.compress(art_data)
+    elif compression == "Kosinski":
+        art_data = kosinski.compress(art_data)
     elif compression != "Uncompressed":
         raise ValueError(f"Unsupported art compression format: {compression}")
 

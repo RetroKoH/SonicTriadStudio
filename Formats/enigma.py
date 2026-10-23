@@ -107,8 +107,9 @@ class EnigmaComp(Compress):
 __all__ = ["compress", "decompress"]
 
 
-def compress(data, xor_mode=None):
-    comp = EnigmaComp(data)
+def compress(data):
+    return
+    # comp = EnigmaComp(data)
     # return comp.compress()
 
 
